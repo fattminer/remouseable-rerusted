@@ -1,5 +1,6 @@
-# reMouseable
+# reMouseable - ReRusted
 
+> This is a rust rework of the reMousable tool. Hopefully will be able to maintain for the foreseeable future. 
 > Use your reMarkable tablet as a mouse.
 
 - [reMouseable](#remouseable)
