@@ -185,6 +185,24 @@ pub fn process_events<R: Read, W: Write>(
     output: W,
     config: Config,
 ) -> Result<(), AppError> {
+    let driver = JsonDriver {
+        output,
+        screen_width: config.screen_width,
+        screen_height: config.screen_height,
+    };
+    process_events_with_driver(input, driver, config)
+}
+
+/// Converts a raw event stream into host actions using the provided driver.
+///
+/// # Errors
+///
+/// Returns an error when reading input, processing events, or driving the host fails.
+pub fn process_events_with_driver<R: Read, D: HostDriver<Error = io::Error>>(
+    input: R,
+    driver: D,
+    config: Config,
+) -> Result<(), AppError> {
     let reader = ReaderEventSource::new(input);
     let events = SelectingEventSource::new(reader, vec![EV_ABS]);
     let changes = EvdevStateMachine::with_dragging(
@@ -193,11 +211,6 @@ pub fn process_events<R: Read, W: Write>(
         !config.disable_drag_event,
     );
     let scaler = AppScaler::from_config(config);
-    let driver = JsonDriver {
-        output,
-        screen_width: config.screen_width,
-        screen_height: config.screen_height,
-    };
     let mut runtime = Runtime::new(changes, scaler, driver);
 
     while runtime.step().map_err(AppError::Runtime)? {}

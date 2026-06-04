@@ -83,8 +83,9 @@ A Rust replacement is under active development beside the existing Go
 implementation. The Rust application currently supports processing local,
 recorded reMarkable Evdev streams and emitting either debug events or scaled
 mouse actions as JSON Lines. It also supports live SSH event streams using the
-original launch parameters. Host mouse control is not implemented in Rust yet,
-so live events currently produce JSON Lines.
+original launch parameters. Live streams now control the host mouse through
+Enigo; local `--input-file` streams continue producing JSON Lines for safe,
+deterministic testing.
 
 Connect using the same password flags as the Go application:
 

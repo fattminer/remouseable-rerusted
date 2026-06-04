@@ -6,8 +6,8 @@
 
 use clap::{Parser, ValueEnum};
 use remouseable::{
-    DEFAULT_TABLET_HEIGHT, DEFAULT_TABLET_WIDTH,
-    app::{Config, Orientation, debug_events, process_events},
+    DEFAULT_TABLET_HEIGHT, DEFAULT_TABLET_WIDTH, HostDriver, NativeDriver,
+    app::{Config, Orientation, debug_events, process_events, process_events_with_driver},
     ssh::{SshOptions, open_event_stream},
 };
 use std::{
@@ -59,12 +59,12 @@ struct Args {
     pressure_threshold: i32,
 
     /// Host screen height.
-    #[arg(long, default_value_t = 1080)]
-    screen_height: i32,
+    #[arg(long)]
+    screen_height: Option<i32>,
 
     /// Host screen width.
-    #[arg(long, default_value_t = 1920)]
-    screen_width: i32,
+    #[arg(long)]
+    screen_width: Option<i32>,
 
     /// Tablet coordinate height.
     #[arg(long, default_value_t = DEFAULT_TABLET_HEIGHT)]
@@ -100,7 +100,8 @@ struct Args {
 }
 
 fn run(mut args: Args) -> Result<(), Box<dyn Error>> {
-    let input: Box<dyn Read> = if let Some(input_file) = args.input_file {
+    let is_live = args.input_file.is_none();
+    let input: Box<dyn Read> = if let Some(input_file) = &args.input_file {
         Box::new(BufReader::new(File::open(input_file)?))
     } else {
         if args.ssh_password == "-" {
@@ -112,12 +113,12 @@ fn run(mut args: Args) -> Result<(), Box<dyn Error>> {
             );
         }
         Box::new(open_event_stream(&SshOptions {
-            address: args.ssh_ip,
-            user: args.ssh_user,
-            password: args.ssh_password,
-            agent_socket: args.ssh_socket,
-            event_file: args.event_file,
-            known_hosts: args.ssh_known_hosts,
+            address: args.ssh_ip.clone(),
+            user: args.ssh_user.clone(),
+            password: args.ssh_password.clone(),
+            agent_socket: args.ssh_socket.clone(),
+            event_file: args.event_file.clone(),
+            known_hosts: args.ssh_known_hosts.clone(),
         })?)
     };
     let mut output = BufWriter::new(io::stdout().lock());
@@ -128,21 +129,31 @@ fn run(mut args: Args) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
 
-    process_events(
-        input,
-        &mut output,
-        Config {
-            orientation: args.orientation.into(),
-            tablet_width: args.tablet_width,
-            tablet_height: args.tablet_height,
-            screen_width: args.screen_width,
-            screen_height: args.screen_height,
-            pressure_threshold: args.pressure_threshold,
-            disable_drag_event: args.disable_drag_event,
-        },
-    )?;
+    if is_live {
+        let driver = NativeDriver::new()?;
+        let (detected_width, detected_height) = driver.screen_size()?;
+        process_events_with_driver(
+            input,
+            driver,
+            config(&args, detected_width, detected_height),
+        )?;
+    } else {
+        process_events(input, &mut output, config(&args, 1920, 1080))?;
+    }
     output.flush()?;
     Ok(())
+}
+
+fn config(args: &Args, default_width: i32, default_height: i32) -> Config {
+    Config {
+        orientation: args.orientation.into(),
+        tablet_width: args.tablet_width,
+        tablet_height: args.tablet_height,
+        screen_width: args.screen_width.unwrap_or(default_width),
+        screen_height: args.screen_height.unwrap_or(default_height),
+        pressure_threshold: args.pressure_threshold,
+        disable_drag_event: args.disable_drag_event,
+    }
 }
 
 fn main() -> ExitCode {
@@ -220,8 +231,8 @@ mod tests {
         assert_eq!(args.event_file, "/dev/input/event1");
         assert!(matches!(args.orientation, OrientationArg::Left));
         assert_eq!(args.pressure_threshold, 1500);
-        assert_eq!(args.screen_height, 1440);
-        assert_eq!(args.screen_width, 2560);
+        assert_eq!(args.screen_height, Some(1440));
+        assert_eq!(args.screen_width, Some(2560));
         assert_eq!(args.ssh_ip, "remarkable.local:2222");
         assert_eq!(args.ssh_password, "secret");
         assert_eq!(args.ssh_socket, "/tmp/agent.sock");

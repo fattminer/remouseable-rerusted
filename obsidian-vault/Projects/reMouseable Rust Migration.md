@@ -191,14 +191,22 @@ The source reports nonzero remote/OpenSSH command exits. Local validation:
 
 ### Phase 4: Host Driver
 
-- [ ] Implement initial `enigo` driver.
-- [ ] Test move, press, release, and drag on Windows.
+- [x] Implement initial `enigo` driver.
+- [x] Run move, press, release, and drag pipeline on Windows with real tablet input.
 - [ ] Test on macOS, paying special attention to explicit drag events.
 - [ ] Test on Linux X11.
 - [ ] Replace `enigo` with platform-specific thin drivers only where behavior requires it.
-- [ ] Add monitor selection using `display-info`.
+- [x] Detect primary display size using `display-info`.
+- [ ] Add explicit monitor selection and offsets.
 
 Exit condition: real-device parity on all supported platforms.
+
+Windows Phase 4 implementation landed on June 4, 2026. A real tablet produced
+21,657 stylus events from `/dev/input/event1` during a 20-second scan. The live
+Rust pipeline then ran SSH, event parsing, scaling, and native Enigo mouse
+injection together for a timed validation window without errors. `/dev/input/event2`
+was identified as touch input. The native driver releases a held left button
+when it shuts down.
 
 ### Phase 5: Packaging and Cutover
 
@@ -257,6 +265,7 @@ Input-injection and SSH crates are security-sensitive dependencies. Pin versions
 | 2026-06-04 | Emit JSON actions before host driver integration | Makes local stream processing executable and testable before native input injection |
 | 2026-06-04 | Use Ring-backed `russh` for live SSH | Works against the real tablet's modern Dropbear algorithms without OpenSSL/libssh2 runtime dependencies |
 | 2026-06-04 | Pin RustCrypto prerelease dependencies in `Cargo.lock` | `russh 0.61.1` otherwise resolves incompatible `primefield` prerelease versions |
+| 2026-06-04 | Use Enigo for initial host driver | Safe cross-platform API integrates with existing driver trait; Windows real-tablet pipeline runs without errors |
 | 2026-06-04 | Preserve insecure host-key default temporarily | Keeps original launch behavior usable; warning and `--ssh-known-hosts` provide an upgrade path |
 
 ## Agent Handoff Prompt

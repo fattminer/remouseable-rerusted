@@ -57,7 +57,8 @@ Rust conversion status as of June 4, 2026:
 - Live SSH supports password, prompt, default-agent, and custom-agent-socket authentication.
 - Rust validates remote event paths and optionally verifies host keys with `--ssh-known-hosts`.
 - Ring-backed `russh` password authentication and `/dev/input/event1` streaming were validated against a real tablet on June 4, 2026.
-- Host mouse injection remains unimplemented; Rust live streams emit JSON actions.
+- Live Rust streams inject native host mouse actions through Enigo. Local `--input-file` streams emit JSON actions.
+- Real tablet `/dev/input/event1` produced stylus events and ran through Windows native injection without errors on June 4, 2026.
 
 Repository had no uncommitted changes when initially assessed on June 4, 2026. Recheck with `git status --short` before work.
 
@@ -256,6 +257,7 @@ Vendored native surface is much larger than actual used feature set.
 | `.devcontainer/Containerfile` | Linux development dependencies |
 | `src/ssh.rs` | Rust live SSH source, authentication, host-key checks |
 | `src/main.rs` | Rust CLI and application assembly |
+| `src/driver.rs` | Rust Enigo native mouse driver and primary-display detection |
 
 ## Testing
 
