@@ -7,7 +7,7 @@ tags:
   - rust
   - migration
   - roadmap
-status: proposed
+status: in-progress
 language: Rust
 repository: C:\Users\mfiner\GIT\remouseable
 updated: 2026-06-04
@@ -46,8 +46,7 @@ Likely reliable parity effort: **2–4 weeks**, including real-device and cross-
 | Need | Candidate |
 |---|---|
 | CLI | `clap` |
-| Async runtime | `tokio` |
-| SSH | `russh` |
+| SSH | `russh` with Ring crypto backend |
 | Password prompt | `rpassword` |
 | Mouse injection | `enigo` initially |
 | Display enumeration | `display-info` |
@@ -121,35 +120,74 @@ Exit condition: deterministic compatibility fixture exists.
 
 ### Phase 1: Pure Rust Core
 
-- [ ] Initialize Cargo project beside Go implementation.
-- [ ] Implement explicit 16-byte event decoder using `read_exact`.
-- [ ] Implement event filtering.
-- [ ] Implement state machine.
-- [ ] Implement three position scalers.
-- [ ] Implement runtime dispatch using fake driver.
-- [ ] Port relevant Go unit tests.
+- [x] Initialize Cargo project beside Go implementation.
+- [x] Implement explicit 16-byte event decoder using `read_exact`.
+- [x] Implement event filtering.
+- [x] Implement state machine.
+- [x] Implement three position scalers.
+- [x] Implement runtime dispatch using fake driver.
+- [x] Port relevant Go unit tests.
 
 Exit condition: Rust core produces same output as Go fixture tests.
 
+Implementation started on June 4, 2026. Pure Rust core lives in `src/` and has no external dependencies. Fifteen Rust unit tests pass. Captured real-tablet fixture comparison remains incomplete, so Phase 1 exit condition is not fully satisfied.
+
+Validation commands:
+
+```shell
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+```
+
+On the inspected Windows workstation, native MSVC tests require this library path because the Visual Studio developer environment is incomplete:
+
+```powershell
+$env:LIB='C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\lib\onecore\x64'
+cargo test --all-targets
+```
+
+Rust CI now runs format, tests, and Clippy on Ubuntu.
+
 ### Phase 2: CLI and Event Sources
 
-- [ ] Implement `clap` CLI with compatible flags.
-- [ ] Add local/static-file event source for debugging and tests.
-- [ ] Implement structured errors and exit codes.
-- [ ] Implement debug event output.
+- [x] Implement `clap` CLI with compatible flags.
+- [x] Add local/static-file event source for debugging and tests.
+- [x] Implement structured errors and exit codes.
+- [x] Implement debug event output.
 
 Exit condition: application runs end-to-end from recorded event stream.
 
+Phase 2 completed on June 4, 2026. `cargo run -- --input-file <PATH>` processes a raw 16-byte Evdev stream and emits scaled action JSON Lines. Add `--debug-events` to emit named raw events instead.
+
+`fixtures/representative-events.hex` provides a deterministic synthetic wire-format fixture used by integration tests. It is not a real tablet capture; obtaining and comparing a real-device capture remains open Phase 0 work.
+
 ### Phase 3: SSH
 
-- [ ] Implement password authentication.
-- [ ] Implement SSH agent authentication.
-- [ ] Validate legacy RSA algorithm compatibility against real tablet.
+- [x] Implement password authentication.
+- [x] Implement SSH agent authentication.
+- [x] Validate password authentication against real tablet.
+- [ ] Validate agent/RSA authentication against real tablet.
 - [ ] Secure host-key handling.
-- [ ] Validate or safely encode event path.
-- [ ] Stream command output without buffering full stream.
+- [x] Validate or safely encode event path.
+- [x] Stream command output without buffering full stream.
 
 Exit condition: Rust app receives live tablet events.
+
+Phase 3 implementation completed on June 4, 2026. The Ring-backed `russh`
+backend successfully connected and authenticated with a real reMarkable tablet,
+then streamed `/dev/input/event1` for a timed smoke test. The tablet was idle
+during the test, so no stylus events were captured. Password authentication is
+validated; agent/RSA authentication still requires a real-device test.
+
+The app preserves the Go application's insecure host-key default for launch
+compatibility and warns; `--ssh-known-hosts <PATH>` enables strict verification.
+`--event-file` accepts only safe absolute paths, blocking the Go implementation's
+command-injection issue.
+
+All original launch parameters are parsed by an explicit compatibility test.
+The source reports nonzero remote/OpenSSH command exits. Local validation:
+26 tests pass, format passes, and strict Clippy passes.
 
 ### Phase 4: Host Driver
 
@@ -179,7 +217,8 @@ Current native code emits `kCGEventLeftMouseDragged`, not only movement while bu
 
 ### Legacy SSH Compatibility
 
-Tablet firmware may require older RSA behavior. `russh` supports `ssh-rsa`, but configuration must be tested on actual devices.
+Password authentication works against the tested Dropbear 2022.83 tablet.
+Agent authentication, especially RSA agent keys, still requires real-device testing.
 
 ### Agent Authentication
 
@@ -213,6 +252,12 @@ Input-injection and SSH crates are security-sensitive dependencies. Pin versions
 | 2026-06-04 | Preserve explicit remote event decoder | Tablet event ABI uses 32-bit timestamps and differs from possible host ABI |
 | 2026-06-04 | Start with Enigo, allow native fallback | Fastest route to parity; macOS drag behavior may require native API |
 | 2026-06-04 | Run Go and Rust side by side during migration | Enables fixture comparison and safe rollback |
+| 2026-06-04 | Keep initial Rust core dependency-free | Core event parsing, state, scaling, and dispatch need only standard library |
+| 2026-06-04 | Improve partial-read behavior during port | Rust event source accepts fragmented reads and rejects truncated 16-byte events |
+| 2026-06-04 | Emit JSON actions before host driver integration | Makes local stream processing executable and testable before native input injection |
+| 2026-06-04 | Use Ring-backed `russh` for live SSH | Works against the real tablet's modern Dropbear algorithms without OpenSSL/libssh2 runtime dependencies |
+| 2026-06-04 | Pin RustCrypto prerelease dependencies in `Cargo.lock` | `russh 0.61.1` otherwise resolves incompatible `primefield` prerelease versions |
+| 2026-06-04 | Preserve insecure host-key default temporarily | Keeps original launch behavior usable; warning and `--ssh-known-hosts` provide an upgrade path |
 
 ## Agent Handoff Prompt
 

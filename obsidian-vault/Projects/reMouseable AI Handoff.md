@@ -9,7 +9,7 @@ tags:
   - architecture
   - go
 status: active
-language: Go
+language: Go and Rust
 repository: C:\Users\mfiner\GIT\remouseable
 upstream: https://github.com/kevinconway/remouseable
 updated: 2026-06-04
@@ -49,6 +49,16 @@ Linux Wayland is not reliably supported.
 | Local Go availability on 2026-06-04 | Not installed |
 | Local Rust availability on 2026-06-04 | `rustc 1.94.1`, `cargo 1.94.1` |
 
+Rust conversion status as of June 4, 2026:
+
+- Pure Rust event decoder, filters, state machine, scalers, and runtime implemented.
+- Rust CLI implemented with legacy-compatible flags and new `--input-file`.
+- Local streams emit scaled mouse actions as JSON Lines or named debug events.
+- Live SSH supports password, prompt, default-agent, and custom-agent-socket authentication.
+- Rust validates remote event paths and optionally verifies host keys with `--ssh-known-hosts`.
+- Ring-backed `russh` password authentication and `/dev/input/event1` streaming were validated against a real tablet on June 4, 2026.
+- Host mouse injection remains unimplemented; Rust live streams emit JSON actions.
+
 Repository had no uncommitted changes when initially assessed on June 4, 2026. Recheck with `git status --short` before work.
 
 ## User-Facing Behavior
@@ -80,6 +90,7 @@ Important flags include:
 | `--ssh-user` | SSH user, default `root` |
 | `--ssh-password` | Password or `-` for prompt |
 | `--ssh-socket` | SSH agent socket |
+| `--ssh-known-hosts` | Rust-only optional OpenSSH known-hosts file |
 | `--event-file` | Remote Evdev device path |
 | `--orientation` | `right`, `left`, or `vertical` |
 | `--pressure-threshold` | Click threshold, default `1000` |
@@ -243,6 +254,8 @@ Vendored native surface is much larger than actual used feature set.
 | `.github/workflows/pr-workflow.yaml` | Tests and cross-platform build checks |
 | `.github/workflows/tag-workflow.yaml` | Release builds |
 | `.devcontainer/Containerfile` | Linux development dependencies |
+| `src/ssh.rs` | Rust live SSH source, authentication, host-key checks |
+| `src/main.rs` | Rust CLI and application assembly |
 
 ## Testing
 
@@ -274,6 +287,21 @@ go test ./pkg
 
 Native driver tests are difficult because they manipulate actual host mouse. Use unit tests for core logic and explicit manual smoke tests per platform.
 
+Rust validation:
+
+```shell
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+cargo test --doc
+```
+
+On the inspected Windows host, Ring-backed `russh` requires a complete MSVC
+BuildTools environment. Loading the `14.52.36328` VC include/lib paths and
+Windows SDK `10.0.26100.0` allowed all checks to pass. Keep `Cargo.lock`
+committed: `russh 0.61.1` currently depends on RustCrypto prereleases, and a
+fresh unconstrained resolution can select incompatible `primefield` versions.
+
 ## Build and Release
 
 Linux dependencies include:
@@ -300,12 +328,14 @@ macOS builds run on GitHub-hosted macOS runners using latest stable Xcode.
    - Uses `ssh.InsecureIgnoreHostKey()`.
    - Risk: man-in-the-middle attack.
    - Better design: known-hosts verification with explicit first-use workflow or opt-in insecure flag.
+   - Rust preserves this default for launch compatibility, emits a warning, and supports `--ssh-known-hosts`.
 
 2. **Remote command injection through event path**
    - Location: `main.go`
    - Runs `cat %s` with user-controlled `--event-file`.
    - Risk: arbitrary shell command execution as tablet root.
    - Better design: validate event path against strict `/dev/input/event[0-9]+` pattern, safely shell-quote it, or use SFTP/direct channel behavior.
+   - Fixed in Rust: only safe absolute event paths are accepted.
 
 3. **Partial-read bug**
    - Location: `pkg/evdeviterator.go`
@@ -364,7 +394,7 @@ macOS builds run on GitHub-hosted macOS runners using latest stable Xcode.
 - [ ] macOS Intel and ARM builds pass; macOS smoke test passes.
 - [ ] Linux X11 build and smoke test pass.
 - [ ] Remote event path cannot inject commands.
-- [ ] Host-key behavior is documented and secure by default.
+- [ ] Host-key behavior is secure by default. Rust behavior is documented but remains insecure by default for Go launch compatibility.
 
 ## Related Notes
 
@@ -376,6 +406,6 @@ macOS builds run on GitHub-hosted macOS runners using latest stable Xcode.
 - [Upstream repository](https://github.com/kevinconway/remouseable)
 - [Alternative remarkable_mouse project](https://github.com/Evidlo/remarkable_mouse)
 - [Enigo cross-platform input simulation](https://github.com/enigo-rs/enigo)
-- [Russh SSH client/server](https://github.com/Eugeny/russh)
+- [Russh SSH client/server](https://github.com/warp-tech/russh)
 - [Rust evdev crate](https://docs.rs/evdev/latest/evdev/)
 - [Rust display-info crate](https://docs.rs/crate/display-info/latest)

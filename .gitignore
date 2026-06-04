@@ -909,5 +909,7 @@ bin/
 statik/statik.go
 # Project local build output directory
 .build/
+# Rust build output directory
+target/
 
 # End custom overrides

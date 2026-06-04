@@ -77,6 +77,47 @@ the project. To view the code API documentation check out the
 If you would like to modify the project or add a feature then see the technical
 documentation in the `technical-documentation` directory.
 
+### Rust Conversion Status
+
+A Rust replacement is under active development beside the existing Go
+implementation. The Rust application currently supports processing local,
+recorded reMarkable Evdev streams and emitting either debug events or scaled
+mouse actions as JSON Lines. It also supports live SSH event streams using the
+original launch parameters. Host mouse control is not implemented in Rust yet,
+so live events currently produce JSON Lines.
+
+Connect using the same password flags as the Go application:
+
+```shell
+cargo run -- --ssh-password="TABLET_PASSWORD"
+cargo run -- --ssh-password="-" --event-file="/dev/input/event1"
+```
+
+Password-less agent authentication uses `SSH_AUTH_SOCK` or `--ssh-socket`.
+Use `--ssh-known-hosts <PATH>` to verify the tablet host key. Host-key
+verification remains disabled by default for compatibility with the Go
+application and emits a warning.
+
+Run a local raw event stream with:
+
+```shell
+cargo run -- --input-file path/to/events.bin
+```
+
+Print decoded raw events with:
+
+```shell
+cargo run -- --input-file path/to/events.bin --debug-events
+```
+
+Validate the Rust implementation with:
+
+```shell
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+```
+
 ## Installation
 
 ### Windows

@@ -1,0 +1,23 @@
+[package]
+name = "remouseable"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-only"
+description = "Use a reMarkable tablet as a mouse"
+repository = "https://github.com/kevinconway/remouseable"
+
+[dependencies]
+clap = { version = "4.6.1", features = ["derive", "env"] }
+rpassword = "7"
+russh = { version = "0.61.1", default-features = false, features = ["flate2", "ring"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time"] }
+
+[lib]
+path = "src/lib.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"

@@ -1,31 +1,28 @@
 filters:
   and:
-    - 'file.hasTag("project/remouseable")'
-    - 'file.ext == "md"'
-
+    - file.hasTag("project/remouseable")
+    - file.ext == "md"
 formulas:
-  age_days: '(now() - file.mtime).days.round(0)'
-  freshness: 'if((now() - file.mtime).days > 90, "Review", "Current")'
-
+  age_days: (now() - file.mtime).days.round(0)
+  freshness: if((now() - file.mtime).days > 90, "Review", "Current")
 properties:
   file.name:
-    displayName: "Note"
+    displayName: Note
   status:
-    displayName: "Status"
+    displayName: Status
   language:
-    displayName: "Language"
+    displayName: Language
   priority:
-    displayName: "Priority"
+    displayName: Priority
   updated:
-    displayName: "Last Reviewed"
+    displayName: Last Reviewed
   formula.freshness:
-    displayName: "Freshness"
+    displayName: Freshness
   formula.age_days:
-    displayName: "Days Since Edit"
-
+    displayName: Days Since Edit
 views:
   - type: table
-    name: "Project Notes"
+    name: Project Notes
     order:
       - file.name
       - status
@@ -33,12 +30,11 @@ views:
       - language
       - updated
       - formula.freshness
-
   - type: table
-    name: "Needs Review"
+    name: Needs Review
     filters:
       and:
-        - 'formula.age_days > 90'
+        - formula.age_days > 90
     order:
       - file.name
       - status
