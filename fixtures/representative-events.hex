@@ -1,0 +1,15 @@
+# Representative reMarkable 16-byte little-endian Evdev stream.
+# Each event is: u32 sec, u32 usec, u16 type, u16 code, i32 value.
+#
+# ABS_X = 25
+01 00 00 00 00 00 00 00 03 00 00 00 19 00 00 00
+# ABS_Y = 50
+02 00 00 00 00 00 00 00 03 00 01 00 32 00 00 00
+# ABS_PRESSURE = 2000, click
+03 00 00 00 00 00 00 00 03 00 18 00 d0 07 00 00
+# ABS_X = 50
+04 00 00 00 00 00 00 00 03 00 00 00 32 00 00 00
+# ABS_Y = 100, drag
+05 00 00 00 00 00 00 00 03 00 01 00 64 00 00 00
+# ABS_PRESSURE = 0, release
+06 00 00 00 00 00 00 00 03 00 18 00 00 00 00 00
