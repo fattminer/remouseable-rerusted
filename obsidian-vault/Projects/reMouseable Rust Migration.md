@@ -208,6 +208,20 @@ injection together for a timed validation window without errors. `/dev/input/eve
 was identified as touch input. The native driver releases a held left button
 when it shuts down.
 
+Latency optimization pass completed June 4, 2026:
+
+- Read complete 16-byte events in one call when the source has them available.
+- Transfer `russh` channel chunks through the blocking bridge as zero-copy `Bytes`.
+- Use one Tokio SSH worker instead of the default CPU-count worker pool.
+- Remove the redundant production `EV_ABS` selection layer.
+- Track coordinate changes with a compact bitmask.
+- Suppress duplicate absolute native mouse positions.
+
+TCP `NODELAY` was already enabled. The event stream is push-based, so there is
+no polling interval to increase. Movement coalescing remains a possible future
+optimization, but it must preserve pressure transition ordering to avoid missed
+click/drag boundaries. Use a release build for live operation.
+
 ### Phase 5: Packaging and Cutover
 
 - [ ] Add Rust GitHub Actions build/test jobs.
@@ -266,6 +280,7 @@ Input-injection and SSH crates are security-sensitive dependencies. Pin versions
 | 2026-06-04 | Use Ring-backed `russh` for live SSH | Works against the real tablet's modern Dropbear algorithms without OpenSSL/libssh2 runtime dependencies |
 | 2026-06-04 | Pin RustCrypto prerelease dependencies in `Cargo.lock` | `russh 0.61.1` otherwise resolves incompatible `primefield` prerelease versions |
 | 2026-06-04 | Use Enigo for initial host driver | Safe cross-platform API integrates with existing driver trait; Windows real-tablet pipeline runs without errors |
+| 2026-06-04 | Optimize live hot path without movement coalescing | Removes copies, duplicate injections, and redundant work while preserving every distinct position and pressure transition |
 | 2026-06-04 | Preserve insecure host-key default temporarily | Keeps original launch behavior usable; warning and `--ssh-known-hosts` provide an upgrade path |
 
 ## Agent Handoff Prompt

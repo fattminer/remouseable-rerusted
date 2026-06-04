@@ -59,6 +59,7 @@ Rust conversion status as of June 4, 2026:
 - Ring-backed `russh` password authentication and `/dev/input/event1` streaming were validated against a real tablet on June 4, 2026.
 - Live Rust streams inject native host mouse actions through Enigo. Local `--input-file` streams emit JSON actions.
 - Real tablet `/dev/input/event1` produced stylus events and ran through Windows native injection without errors on June 4, 2026.
+- Live path is optimized for one-read events, zero-copy SSH chunks, one SSH worker, and duplicate-position suppression.
 
 Repository had no uncommitted changes when initially assessed on June 4, 2026. Recheck with `git status --short` before work.
 

@@ -4,6 +4,7 @@
 // it under the terms of the GNU General Public License version 3 as published
 // by the Free Software Foundation.
 
+use bytes::Bytes;
 use russh::{
     ChannelMsg, Disconnect, client,
     keys::{
@@ -51,8 +52,8 @@ impl client::Handler for Client {
 
 pub struct SshEventReader {
     _runtime: tokio::runtime::Runtime,
-    receiver: mpsc::Receiver<Result<Vec<u8>, String>>,
-    current: Vec<u8>,
+    receiver: mpsc::Receiver<Result<Bytes, String>>,
+    current: Bytes,
     offset: usize,
 }
 
@@ -91,6 +92,7 @@ impl Read for SshEventReader {
 pub fn open_event_stream(options: &SshOptions) -> io::Result<SshEventReader> {
     validate_event_file(&options.event_file)?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
         .enable_all()
         .build()?;
     let (sender, receiver) = mpsc::channel();
@@ -98,14 +100,14 @@ pub fn open_event_stream(options: &SshOptions) -> io::Result<SshEventReader> {
     Ok(SshEventReader {
         _runtime: runtime,
         receiver,
-        current: Vec::new(),
+        current: Bytes::new(),
         offset: 0,
     })
 }
 
 async fn connect_and_spawn(
     options: SshOptions,
-    sender: mpsc::Sender<Result<Vec<u8>, String>>,
+    sender: mpsc::Sender<Result<Bytes, String>>,
 ) -> io::Result<()> {
     let (host, port) = parse_address(&options.address)?;
     let handler = Client {
@@ -149,7 +151,7 @@ async fn connect_and_spawn(
         while let Some(message) = channel.wait().await {
             match message {
                 ChannelMsg::Data { data } => {
-                    if sender.send(Ok(data.to_vec())).is_err() {
+                    if sender.send(Ok(data)).is_err() {
                         break;
                     }
                 }

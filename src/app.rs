@@ -204,9 +204,8 @@ pub fn process_events_with_driver<R: Read, D: HostDriver<Error = io::Error>>(
     config: Config,
 ) -> Result<(), AppError> {
     let reader = ReaderEventSource::new(input);
-    let events = SelectingEventSource::new(reader, vec![EV_ABS]);
     let changes = EvdevStateMachine::with_dragging(
-        events,
+        reader,
         config.pressure_threshold,
         !config.disable_drag_event,
     );

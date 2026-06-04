@@ -14,6 +14,7 @@ pub struct NativeDriver {
     screen_width: i32,
     screen_height: i32,
     left_pressed: bool,
+    last_position: Option<(i32, i32)>,
 }
 
 impl NativeDriver {
@@ -39,6 +40,7 @@ impl NativeDriver {
             screen_width,
             screen_height,
             left_pressed: false,
+            last_position: None,
         })
     }
 }
@@ -51,9 +53,14 @@ impl HostDriver for NativeDriver {
     }
 
     fn move_mouse(&mut self, x: i32, y: i32) -> Result<(), Self::Error> {
+        if self.last_position == Some((x, y)) {
+            return Ok(());
+        }
         self.enigo
             .move_mouse(x, y, Coordinate::Abs)
-            .map_err(io::Error::other)
+            .map_err(io::Error::other)?;
+        self.last_position = Some((x, y));
+        Ok(())
     }
 
     fn drag_mouse(&mut self, x: i32, y: i32) -> Result<(), Self::Error> {

@@ -7,6 +7,10 @@
 use crate::event::{ABS_PRESSURE, ABS_X, ABS_Y, EV_ABS, EvdevEvent, EventSource};
 use std::io;
 
+const X_CHANGED: u8 = 0b01;
+const Y_CHANGED: u8 = 0b10;
+const POSITION_CHANGED: u8 = X_CHANGED | Y_CHANGED;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StateChange {
     Move { x: i32, y: i32 },
@@ -28,8 +32,9 @@ pub struct EvdevStateMachine<S> {
     source: S,
     pressure_threshold: i32,
     dragging: bool,
-    pending_x: Option<i32>,
-    pending_y: Option<i32>,
+    x: i32,
+    y: i32,
+    position_changes: u8,
     clicked: bool,
 }
 
@@ -43,8 +48,9 @@ impl<S> EvdevStateMachine<S> {
             source,
             pressure_threshold,
             dragging,
-            pending_x: None,
-            pending_y: None,
+            x: 0,
+            y: 0,
+            position_changes: 0,
             clicked: false,
         }
     }
@@ -60,10 +66,12 @@ impl<S> EvdevStateMachine<S> {
 
         match event.code {
             ABS_X => {
-                self.pending_x = Some(event.value);
+                self.x = event.value;
+                self.position_changes |= X_CHANGED;
             }
             ABS_Y => {
-                self.pending_y = Some(event.value);
+                self.y = event.value;
+                self.position_changes |= Y_CHANGED;
             }
             ABS_PRESSURE if event.value > self.pressure_threshold && !self.clicked => {
                 self.clicked = true;
@@ -76,13 +84,18 @@ impl<S> EvdevStateMachine<S> {
             _ => {}
         }
 
-        if self.pending_x.is_some() && self.pending_y.is_some() {
-            let x = self.pending_x.take().expect("pending X checked above");
-            let y = self.pending_y.take().expect("pending Y checked above");
+        if self.position_changes == POSITION_CHANGED {
+            self.position_changes = 0;
             if self.dragging && self.clicked {
-                return Some(StateChange::Drag { x, y });
+                return Some(StateChange::Drag {
+                    x: self.x,
+                    y: self.y,
+                });
             }
-            return Some(StateChange::Move { x, y });
+            return Some(StateChange::Move {
+                x: self.x,
+                y: self.y,
+            });
         }
 
         None

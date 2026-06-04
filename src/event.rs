@@ -87,16 +87,15 @@ impl<R: Read> EventSource for ReaderEventSource<R> {
         }
 
         let mut bytes = [0_u8; RAW_EVENT_SIZE];
-        match self.reader.read(&mut bytes[..1]) {
+        match self.reader.read(&mut bytes) {
             Ok(0) => {
                 self.finished = true;
                 Ok(None)
             }
-            Ok(1) => {
-                self.reader.read_exact(&mut bytes[1..])?;
+            Ok(length) => {
+                self.reader.read_exact(&mut bytes[length..])?;
                 Ok(Some(EvdevEvent::from_le_bytes(bytes)))
             }
-            Ok(_) => unreachable!("single-byte read cannot return more than one byte"),
             Err(error) => Err(error),
         }
     }
@@ -174,6 +173,18 @@ mod tests {
         }
     }
 
+    struct CountingReader<R> {
+        inner: R,
+        reads: usize,
+    }
+
+    impl<R: Read> Read for CountingReader<R> {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            self.reads += 1;
+            self.inner.read(buffer)
+        }
+    }
+
     fn encode(event: EvdevEvent) -> [u8; RAW_EVENT_SIZE] {
         let mut bytes = [0_u8; RAW_EVENT_SIZE];
         bytes[0..4].copy_from_slice(&event.seconds.to_le_bytes());
@@ -218,6 +229,24 @@ mod tests {
         assert_eq!(source.next_event().unwrap(), Some(second));
         assert_eq!(source.next_event().unwrap(), None);
         assert_eq!(source.next_event().unwrap(), None);
+    }
+
+    #[test]
+    fn reader_source_reads_complete_event_in_one_call() {
+        let expected = EvdevEvent {
+            event_type: EV_ABS,
+            code: ABS_X,
+            value: 12,
+            ..EvdevEvent::default()
+        };
+        let reader = CountingReader {
+            inner: Cursor::new(encode(expected)),
+            reads: 0,
+        };
+        let mut source = ReaderEventSource::new(reader);
+
+        assert_eq!(source.next_event().unwrap(), Some(expected));
+        assert_eq!(source.into_inner().reads, 1);
     }
 
     #[test]

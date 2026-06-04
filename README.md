@@ -94,6 +94,13 @@ cargo run -- --ssh-password="TABLET_PASSWORD"
 cargo run -- --ssh-password="-" --event-file="/dev/input/event1"
 ```
 
+For lowest live-input latency, use the optimized release binary:
+
+```shell
+cargo build --release
+target/release/remouseable --ssh-password="TABLET_PASSWORD" --event-file="/dev/input/event1"
+```
+
 Password-less agent authentication uses `SSH_AUTH_SOCK` or `--ssh-socket`.
 Use `--ssh-known-hosts <PATH>` to verify the tablet host key. Host-key
 verification remains disabled by default for compatibility with the Go
