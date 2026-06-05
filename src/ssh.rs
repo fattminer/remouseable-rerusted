@@ -150,11 +150,7 @@ async fn connect_and_spawn(
         let mut stderr = Vec::new();
         while let Some(message) = channel.wait().await {
             match message {
-                ChannelMsg::Data { data } => {
-                    if sender.send(Ok(data)).is_err() {
-                        break;
-                    }
-                }
+                ChannelMsg::Data { data } if sender.send(Ok(data.clone())).is_err() => break,
                 ChannelMsg::ExtendedData { data, .. } => stderr.extend_from_slice(&data),
                 ChannelMsg::ExitStatus {
                     exit_status: status,

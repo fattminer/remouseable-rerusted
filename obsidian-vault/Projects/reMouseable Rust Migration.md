@@ -9,8 +9,8 @@ tags:
   - roadmap
 status: in-progress
 language: Rust
-repository: C:\Users\mfiner\GIT\remouseable
-updated: 2026-06-04
+repository: /home/mfiner/Documents/GitHub/remouseable-rerusted
+updated: 2026-06-05
 priority: high
 ---
 
@@ -50,6 +50,7 @@ Likely reliable parity effort: **2–4 weeks**, including real-device and cross-
 | Password prompt | `rpassword` |
 | Mouse injection | `enigo` initially |
 | Display enumeration | `display-info` |
+| Linux Wayland input | `evdev`/uinput, Linux target only |
 | Errors | `thiserror`, optionally `anyhow` at CLI boundary |
 | Logging | `tracing`, `tracing-subscriber` |
 | Tests | Built-in Rust tests with small fake trait implementations |
@@ -197,6 +198,9 @@ The source reports nonzero remote/OpenSSH command exits. Local validation:
 - [ ] Test on Linux X11.
 - [ ] Replace `enigo` with platform-specific thin drivers only where behavior requires it.
 - [x] Detect primary display size using `display-info`.
+- [x] Add Linux Wayland uinput relative mouse backend.
+- [x] Add Hyprland focused-monitor logical size detection.
+- [x] Improve Hyprland scaling by chunking relative uinput movement.
 - [ ] Add explicit monitor selection and offsets.
 
 Exit condition: real-device parity on all supported platforms.
@@ -221,6 +225,22 @@ TCP `NODELAY` was already enabled. The event stream is push-based, so there is
 no polling interval to increase. Movement coalescing remains a possible future
 optimization, but it must preserve pressure transition ordering to avoid missed
 click/drag boundaries. Use a release build for live operation.
+
+Linux Wayland pass completed June 5, 2026:
+
+- Added `--host-driver=auto|enigo|uinput|uinput-tablet`.
+- `auto` selects uinput only on Linux Wayland; Windows and macOS stay on Enigo.
+- Linux-only `evdev` dependency and uinput code are guarded with
+  `cfg(target_os = "linux")`.
+- Hyprland focused-monitor detection reads `hyprctl monitors -j`; tested host
+  reported 1920x1200 at scale 1.50 and Rust correctly used 1280x800 logical
+  pixels.
+- Relative uinput backend homes cursor to top-left, then emits target movement
+  in small frames. This fixed/improved the observed “only reaches part of the
+  screen” scaling issue; user reported it felt much better.
+- Experimental `uinput-tablet` absolute backend exists but did not work reliably
+  in Hyprland testing.
+- Live tablet testing used a real SSH password; do not record it in notes.
 
 ### Phase 5: Packaging and Cutover
 
@@ -248,7 +268,10 @@ Unix agent behavior should be viable. Windows agent behavior requires explicit t
 
 ### Wayland
 
-Do not make Wayland part of initial parity promise. Enigo Wayland/libei support is experimental. Track as later feature.
+Wayland is now an active Linux-specific feature through uinput, not Enigo/libei.
+Hyprland has partial real-device validation. Remaining work: broader compositor
+coverage, `/dev/uinput` permission documentation, multi-monitor behavior, and
+manual override guidance when compositor detection is wrong.
 
 ### Dependency Risk
 
@@ -282,6 +305,9 @@ Input-injection and SSH crates are security-sensitive dependencies. Pin versions
 | 2026-06-04 | Use Enigo for initial host driver | Safe cross-platform API integrates with existing driver trait; Windows real-tablet pipeline runs without errors |
 | 2026-06-04 | Optimize live hot path without movement coalescing | Removes copies, duplicate injections, and redundant work while preserving every distinct position and pressure transition |
 | 2026-06-04 | Preserve insecure host-key default temporarily | Keeps original launch behavior usable; warning and `--ssh-known-hosts` provide an upgrade path |
+| 2026-06-05 | Add Linux Wayland uinput backend | Enigo/X11-style injection is unreliable on Wayland; uinput virtual mouse works with Hyprland |
+| 2026-06-05 | Keep uinput Linux-only and auto-select Enigo elsewhere | Preserves Windows/macOS compatibility and avoids Linux-only dependency leakage |
+| 2026-06-05 | Chunk relative uinput movement | Large relative deltas can be limited by compositor/libinput behavior and fail to reach full screen |
 
 ## Agent Handoff Prompt
 

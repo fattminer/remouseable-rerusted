@@ -84,28 +84,47 @@ A Rust replacement is under active development beside the existing Go
 implementation. The Rust application currently supports processing local,
 recorded reMarkable Evdev streams and emitting either debug events or scaled
 mouse actions as JSON Lines. It also supports live SSH event streams using the
-original launch parameters. Live streams now control the host mouse through
-Enigo; local `--input-file` streams continue producing JSON Lines for safe,
-deterministic testing.
+original launch parameters. Live streams control the host mouse through a
+selectable host driver; local `--input-file` streams continue producing JSON
+Lines for safe, deterministic testing.
 
-Connect using the same password flags as the Go application:
+Connect with a live tablet. When `--ssh-password` or `--event-file` are
+omitted, the Rust application prompts for them. The event-file prompt defaults
+to `/dev/input/event1`:
 
 ```shell
-cargo run -- --ssh-password="TABLET_PASSWORD"
-cargo run -- --ssh-password="-" --event-file="/dev/input/event1"
+cargo run --
+cargo run -- --ssh-password="TABLET_PASSWORD" --event-file="/dev/input/event1"
 ```
 
 For lowest live-input latency, use the optimized release binary:
 
 ```shell
 cargo build --release
-target/release/remouseable --ssh-password="TABLET_PASSWORD" --event-file="/dev/input/event1"
+target/release/remouseable
 ```
 
-Password-less agent authentication uses `SSH_AUTH_SOCK` or `--ssh-socket`.
+Password-less agent authentication uses `SSH_AUTH_SOCK` or `--ssh-socket` when
+`--ssh-password=""` is passed explicitly.
 Use `--ssh-known-hosts <PATH>` to verify the tablet host key. Host-key
 verification remains disabled by default for compatibility with the Go
 application and emits a warning.
+
+On Linux Wayland sessions, the Rust application automatically uses a Linux-only
+`uinput` virtual mouse backend. On Hyprland, it reads the focused monitor's
+logical size from `hyprctl monitors -j`, then emits relative mouse movement in
+small frames so Hyprland/libinput can apply the full tablet-to-screen range. This
+requires write access to `/dev/uinput`; if opening the device fails, configure
+udev permissions or run with appropriate privileges. Use `--host-driver=enigo`
+to force the existing cross-platform backend, `--host-driver=uinput` to force
+the Wayland-friendly virtual mouse backend, or `--host-driver=uinput-tablet` to
+try the experimental absolute virtual tablet backend. The tablet backend is not
+the default because it did not work reliably in Hyprland testing.
+
+Windows and macOS continue to use the Enigo backend. The Linux-only `evdev`
+dependency and uinput code are compiled only for Linux targets. On Windows,
+`--host-driver=auto` resolves to Enigo; `--host-driver=uinput` and
+`--host-driver=uinput-tablet` return a Linux-only error.
 
 Run a local raw event stream with:
 
@@ -194,13 +213,17 @@ cd ~/Downloads
 ./remouseable
 ```
 
-Note that project only works in an X11 environment. If your system uses Wayland
-then touching the tablet with the mouse will result in a remote desktop prompt
-due to something related to Wayland's X11 backwards compatibility choices. Even
-if you allow the connection the application will not work correctly. Some forum
-threads such as [this](https://discussion.fedoraproject.org/t/fedora-39-keeps-spaming-confirmation-remote-desktop-window/98323)
-or [this](https://discussion.fedoraproject.org/t/getting-spammed-with-remote-desktop-connection-window/115561)
-may provide some help but Wayland is technically not supported.
+The original Go implementation only works reliably in an X11 environment. The
+Rust implementation adds Wayland support on Linux through `--host-driver=uinput`,
+which is selected automatically when `XDG_SESSION_TYPE=wayland`. This backend
+creates a virtual relative mouse through `/dev/uinput`, so the user running
+`remouseable` must have permission to open `/dev/uinput`.
+
+Hyprland support is partially validated. The Rust backend detects the focused
+monitor's logical dimensions with `hyprctl monitors -j`; a 1920x1200 monitor at
+scale 1.50 is treated as 1280x800 logical pixels. If automatic detection is
+wrong, override it with `--screen-width` and `--screen-height`. X11 hosts can
+force the classic path with `--host-driver=enigo`.
 
 ## Usage
 
@@ -210,16 +233,17 @@ is found in the settings menu under `Help` and then `Copyrights and licenses`.
 Your password will be near the bottom of the page. If you have an older tablet
 that has not been updated to the latest software then your password may be
 found in the `About` tab of the tablet menu at the bottom of the `General
-Information` section. You may either give the password as text with
+Information` section. The Rust application prompts for this password when you
+run it without `--ssh-password`:
+
+```bash
+remouseable
+```
+
+You may also give the password as text:
 
 ```bash
 remouseable --ssh-password="XYZ123"
-```
-
-or you may choose to have a password prompt with:
-
-```bash
-remouseable --ssh-password="-"
 ```
 
 Run one of these commands with your device connected over USB and your stylus
@@ -233,11 +257,9 @@ lift the stylus.
 ### reMarkable 2 Tablets
 
 The application should work with both reMarkable and reMarkable 2 tablets.
-However, the reMarkable 2 requires that you add
-`--event-file /dev/input/event1` when executing because of a slight change in
-where the stylus events are written in the new tablets. The full command should
-look like
-`remousable --ssh-password="MYPASSWORD" --event-file="/dev/input/event1"`.
+The Rust event-file prompt defaults to `/dev/input/event1`, which is commonly
+needed for reMarkable 2 tablets. You can still override it with
+`--event-file="/dev/input/event0"` or by entering another path at the prompt.
 
 ### Wireless Tablet
 
@@ -298,13 +320,14 @@ $ remouseable -h
 Usage of remouseable:
       --debug-events             Stream hardware events from the tablet instead of acting as a mouse. This is for debugging.
       --disable-drag-event       Disable use of the custom OSX drag event. Only use this drawing on an Apple device is not working as expected.
-      --event-file string        The path on the tablet from which to read evdev events. Probably don't change this. (default "/dev/input/event0")
+      --event-file string        The path on the tablet from which to read evdev events. Prompts when omitted for live SSH runs.
+      --host-driver string       Host mouse injection backend. Choices are auto, enigo, uinput, and uinput-tablet. (default "auto")
       --orientation string       Orientation of the tablet. Choices are vertical, right, and left (default "right")
       --pressure-threshold int   Change the click detection sensitivity. 1000 is when the pen makes contact with the tablet. Set higher to require more pen pressure for a click. (default 1000)
-      --screen-height int        The max units per millimeter of the host screen height. Probably don't change this. (default 1080)
-      --screen-width int         The max units per millimeter of the host screen width. Probably don't change this. (default 1920)
+      --screen-height int        Override detected host screen height.
+      --screen-width int         Override detected host screen width.
       --ssh-ip string            The host and port of a tablet. (default "10.11.99.1:22")
-      --ssh-password string      An optional password to use when ssh-ing into the tablet. Use - for a prompt rather than entering a value. If not given then public/private keypair authentication is used.
+      --ssh-password string      An optional password to use when ssh-ing into the tablet. Prompts when omitted or set to "-".
       --ssh-socket string        Path to the SSH auth socket. This must not be empty if using public/private keypair authentication.
       --ssh-user string          The ssh username to use when logging into the tablet. (default "root")
       --tablet-height int        The max units per millimeter for the hight of the tablet. Probably don't change this. (default 15725)

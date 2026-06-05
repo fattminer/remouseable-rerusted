@@ -12,7 +12,7 @@ pub mod scale;
 pub mod ssh;
 pub mod state;
 
-pub use driver::NativeDriver;
+pub use driver::{DriverKind, NativeDriver};
 pub use event::{
     EvdevEvent, FilteringEventSource, ReaderEventSource, SelectingEventSource, event_code_name,
     event_type_name,

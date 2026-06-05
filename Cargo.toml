@@ -15,6 +15,9 @@ rpassword = "7"
 russh = { version = "0.61.1", default-features = false, features = ["flate2", "ring"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+evdev = "0.13.2"
+
 [lib]
 path = "src/lib.rs"
 

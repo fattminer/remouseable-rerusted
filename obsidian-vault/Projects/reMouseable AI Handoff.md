@@ -10,9 +10,9 @@ tags:
   - go
 status: active
 language: Go and Rust
-repository: C:\Users\mfiner\GIT\remouseable
+repository: /home/mfiner/Documents/GitHub/remouseable-rerusted
 upstream: https://github.com/kevinconway/remouseable
-updated: 2026-06-04
+updated: 2026-06-05
 priority: high
 ---
 
@@ -30,26 +30,28 @@ Project is discontinued upstream but received a compatibility fix and release wo
 - Windows
 - macOS Intel and Apple Silicon
 - Linux X11
+- Linux Wayland through the Rust uinput backend
 
-Linux Wayland is not reliably supported.
+Linux Wayland is partially validated on Hyprland. The Rust `auto` host driver
+selects uinput on Linux Wayland and Enigo elsewhere.
 
 ## Repository Snapshot
 
 | Item | Value |
 |---|---|
-| Repository root | `C:\Users\mfiner\GIT\remouseable` |
-| Default branch | `main` |
-| Latest inspected commit | `9ad73bb` |
-| Latest inspected commit date | 2024-09-19 |
-| Main language | Go 1.23 |
-| Native integration | Vendored RobotGo C headers through CGO |
+| Repository root | `/home/mfiner/Documents/GitHub/remouseable-rerusted` |
+| Default branch | `master` locally |
+| Latest inspected commit | Recheck with `git log --oneline -1` |
+| Latest inspected commit date | Recheck locally |
+| Main language | Rust migration active; original Go docs still present upstream |
+| Native integration | Rust Enigo plus Linux uinput; original Go used vendored RobotGo C headers through CGO |
 | License | GPL-3.0 |
-| CI | GitHub Actions |
-| Release targets | Linux, Windows, macOS amd64, macOS arm64 |
+| CI | Recheck repository |
+| Release targets | Rust target intent: Linux, Windows, macOS amd64, macOS arm64 |
 | Local Go availability on 2026-06-04 | Not installed |
 | Local Rust availability on 2026-06-04 | `rustc 1.94.1`, `cargo 1.94.1` |
 
-Rust conversion status as of June 4, 2026:
+Rust conversion status as of June 5, 2026:
 
 - Pure Rust event decoder, filters, state machine, scalers, and runtime implemented.
 - Rust CLI implemented with legacy-compatible flags and new `--input-file`.
@@ -57,9 +59,12 @@ Rust conversion status as of June 4, 2026:
 - Live SSH supports password, prompt, default-agent, and custom-agent-socket authentication.
 - Rust validates remote event paths and optionally verifies host keys with `--ssh-known-hosts`.
 - Ring-backed `russh` password authentication and `/dev/input/event1` streaming were validated against a real tablet on June 4, 2026.
-- Live Rust streams inject native host mouse actions through Enigo. Local `--input-file` streams emit JSON actions.
+- Live Rust streams inject native host mouse actions through Enigo, or through uinput on Linux Wayland. Local `--input-file` streams emit JSON actions.
 - Real tablet `/dev/input/event1` produced stylus events and ran through Windows native injection without errors on June 4, 2026.
 - Live path is optimized for one-read events, zero-copy SSH chunks, one SSH worker, and duplicate-position suppression.
+- Live Linux Wayland/Hyprland path was tested on June 5, 2026 with a real tablet. `hyprctl monitors -j` detected a 1920x1200 monitor at scale 1.50 as 1280x800 logical pixels. Relative uinput motion now emits small frames; the user reported scaling felt much better after the change.
+- `--host-driver=auto` resolves to uinput only on Linux Wayland and Enigo elsewhere. The Linux-only `evdev` dependency and uinput code are `cfg(target_os = "linux")`.
+- `uinput-tablet` exists as an experimental absolute virtual tablet backend but did not work reliably in Hyprland testing; keep relative `uinput` as Wayland default.
 
 Repository had no uncommitted changes when initially assessed on June 4, 2026. Recheck with `git status --short` before work.
 
@@ -100,6 +105,7 @@ Important flags include:
 | `--tablet-width`, `--tablet-height` | Override tablet coordinate maxima |
 | `--debug-events` | Print selected raw events |
 | `--disable-drag-event` | Use ordinary movement while pressed |
+| `--host-driver` | `auto`, `enigo`, `uinput`, or `uinput-tablet` |
 
 ## Data Flow
 
@@ -111,7 +117,7 @@ flowchart LR
     Filter --> State["Evdev State Machine"]
     State --> Scale["Position Scaler"]
     Scale --> Runtime["Runtime"]
-    Runtime --> Driver["RobotgoDriver"]
+    Runtime --> Driver["NativeDriver: Enigo or Linux uinput"]
     Driver --> Host["Host mouse APIs"]
 ```
 
@@ -258,7 +264,7 @@ Vendored native surface is much larger than actual used feature set.
 | `.devcontainer/Containerfile` | Linux development dependencies |
 | `src/ssh.rs` | Rust live SSH source, authentication, host-key checks |
 | `src/main.rs` | Rust CLI and application assembly |
-| `src/driver.rs` | Rust Enigo native mouse driver and primary-display detection |
+| `src/driver.rs` | Rust native host drivers: Enigo, Linux uinput, Hyprland display detection, relative motion chunking |
 
 ## Testing
 
@@ -298,6 +304,21 @@ cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
 cargo test --doc
 ```
+
+Most recent local validation on June 5, 2026 after Wayland/uinput scaling work:
+
+```shell
+cargo fmt --check
+cargo test --all-targets
+cargo clippy --all-targets -- -D warnings
+cargo build --release
+```
+
+All passed locally. A Windows cross-check was attempted with
+`cargo check --target x86_64-pc-windows-gnu`, but the local Rust toolchain did
+not have that target installed. The failure was `can't find crate for core`, not
+a code error. Before claiming Windows release readiness, install the Windows Rust
+target and run a real check/build on Windows or in CI.
 
 On the inspected Windows host, Ring-backed `russh` requires a complete MSVC
 BuildTools environment. Loading the `14.52.36328` VC include/lib paths and
@@ -356,9 +377,13 @@ macOS builds run on GitHub-hosted macOS runners using latest stable Xcode.
 6. **Multi-monitor handling incomplete**
    - Screen query may return combined dimensions.
    - No monitor selection or coordinate offset selection.
+   - Rust Hyprland path uses the focused monitor's logical size, but broader multi-monitor behavior still needs explicit tests.
 
-7. **Wayland unsupported**
-   - Current Linux implementation assumes X11.
+7. **Wayland support is Linux/uinput-specific**
+   - The Go implementation and Rust Enigo backend assume X11-style mouse injection on Linux.
+   - Rust `--host-driver=auto` selects uinput on Linux Wayland.
+   - Hyprland support has been smoke-tested with a real tablet and improved scaling, but broader Wayland compositor coverage is still open.
+   - The virtual mouse backend needs permission to open `/dev/uinput`.
 
 ## Safe Change Rules
 
@@ -396,6 +421,7 @@ macOS builds run on GitHub-hosted macOS runners using latest stable Xcode.
 - [ ] Windows build and smoke test pass.
 - [ ] macOS Intel and ARM builds pass; macOS smoke test passes.
 - [ ] Linux X11 build and smoke test pass.
+- [ ] Linux Wayland/Hyprland uinput smoke test passes for hover, press, drag, release, and full-screen scaling.
 - [ ] Remote event path cannot inject commands.
 - [ ] Host-key behavior is secure by default. Rust behavior is documented but remains insecure by default for Go launch compatibility.
 

@@ -360,6 +360,33 @@ directory. In there, I've copied just enough to detect screen size and operate
 a mouse. The `robotgo` project supports many more operating system features but
 they require additional dependencies to build.
 
+### Rust Host Drivers
+
+The Rust implementation keeps host input behind the `HostDriver` trait in
+`src/runtime.rs` and the `NativeDriver` wrapper in `src/driver.rs`. The selected
+driver is controlled by `--host-driver`:
+
+| Driver | Platforms | Behavior |
+|---|---|---|
+| `auto` | All | Uses `uinput` on Linux Wayland and Enigo otherwise |
+| `enigo` | Windows, macOS, Linux X11 | Cross-platform mouse injection through the Enigo crate |
+| `uinput` | Linux only | Creates a virtual relative mouse through `/dev/uinput` |
+| `uinput-tablet` | Linux only | Experimental absolute virtual tablet; not the default |
+
+The Linux uinput backend exists because X11-style mouse injection is unreliable
+on Wayland compositors. On Hyprland, the Rust driver reads the focused monitor's
+logical size with `hyprctl monitors -j`. For example, a 1920x1200 monitor at
+scale 1.50 becomes a 1280x800 target for coordinate scaling. It then homes the
+relative cursor to the top-left by sending negative relative movement and emits
+the target movement in small frames. Small frames avoid compositor/libinput
+limits or acceleration behavior that can make one large relative delta cover
+only part of the display.
+
+The `evdev` dependency and all uinput code are guarded with
+`cfg(target_os = "linux")`. Windows and macOS builds use Enigo. On non-Linux
+targets, forcing `--host-driver=uinput` or `--host-driver=uinput-tablet` returns a
+Linux-only error.
+
 ## The Runtime
 
 The runtime component is the logic that brings together the state machine,
@@ -694,4 +721,3 @@ and tablet controls that might be useful to anyone implementing this feature:
 
 - Resources for cross platform
   - https://github.com/OpenTabletDriver/OpenTabletDriver
-
