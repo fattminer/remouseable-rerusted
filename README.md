@@ -1,539 +1,359 @@
 # reMouseable - ReRusted
 
-> This is a rust rework of the reMousable tool. Hopefully will be able to maintain for the foreseeable future. 
-> Use your reMarkable tablet as a mouse.
-
-- [reMouseable](#remouseable)
-  - [Update From June 5th, 2026](#update-from-june-5-2026)
-  - [Update From September 19, 2024](#update-from-september-19-2024)
-  - [Overview](#overview)
-  - [Code And Developer Documentation](#code-and-developer-documentation)
-  - [Installation](#installation)
-    - [Windows](#windows)
-    - [OSX](#osx)
-    - [Linux](#linux)
-  - [Usage](#usage)
-    - [reMarkable 2 Tablets](#remarkable-2-tablets)
-    - [Wireless Tablet](#wireless-tablet)
-    - [Advanced SSH Setup](#advanced-ssh-setup)
-    - [All Options](#all-options)
-  - [Common Issues And Solutions](#common-issues-and-solutions)
-    - [OSX Privacy Settings](#osx-privacy-settings)
-    - [Getting "panic: dial unix: missing address" On Windows](#getting-panic-dial-unix-missing-address-on-windows)
-  - [Building](#building)
-    - [Linux](#linux-1)
-    - [OSX](#osx-1)
-    - [Windows](#windows-1)
-      - [Windows On Linux](#windows-on-linux)
-  - [How It Works](#how-it-works)
-  - [License](#license)
-  - [Developing](#developing)
-  - [Thanks](#thanks)
-
-## Update From June 5, 2026
-
-Hi there, this is a 99% vibe coded rebuild of remouseable using Rust. I know, vibe coded yuck, but it works.
-This should cross compile to Windows and Linux with support for X11 and Wayland. I have only tested on
-Windows and Wayland on Linux, so mileage may vary with X11. Goal of this was really just to learn about Rust,
-and have a Rust version of the program that can be compiled and independent.
-I'll continue to try and maintain it, but I only have a reMarkable 2 and I will primarily be using it on a
-Wayland based Linux system. Feel free to fork it and do whatever you'd like with it.
-I want to give a huge thank you to [Kevin Conway](https://github.com/kevinconway/) for creating this originally.
-If anyone has any suggestions to improve, simplify, or move this forward in any way, please put in a PR. 
-
-The documentation below still somewhat applies, I tried to maintain the original launch
-paramters, but added in a default for easier rm2 usage. 
-
-## Update From September 19, 2024
-
-I somewhat recently had a one-off need to connect my tablet and run remouseable
-again. Once my tablet installed the last few years of updates then I hit the
-same issue as anyone else trying to use this project over the past year and a
-half to two years. I'm sharing the fix with folks in case someone finds it
-useful but **remouseable is still discontinued**.
-
-Remousable was broken for long enough that I expect nearly everyone who once
-used it has moved on. If you start using it again or are considering using it
-for the first time then I wish you the best. Please understand, though, that I
-do not have time to support you if you need help or encounter an issue. I've
-left the GitHub issues enabled so anyone using this can request or offer help to
-others but I do not monitor the issues and will not respond to them myself.
-
-You can download the fixed executables from
-https://github.com/kevinconway/remouseable/releases and follow this README's
-instructions on how to install them. However, consider
-https://github.com/Evidlo/remarkable_mouse as a replacement that continued
-working while remouseable was broken and continues to have people contributing
-to it. It also supports more features than this project such as multi-monitor
-support.
-
-If you are a developer and want to add new features then please fork the
-project. I've added GitHub actions workflows to automate building new
-executables and a [devcontainer](https://containers.dev/) to make running a fork
-even easier. If you maintain a fork with newer or better features than mine then
-I'm happy to add a link to your project here.
-
-## Overview
-
-I'm a user of the [reMarkable](https://remarkable.com/) tablet. After using it
-for a while I started wondering if it could be used as an input for my
-computer so I could write and draw on digital whiteboards. It turns out, it can!
-
-There's a great implementation of this feature written in Python at
-<https://github.com/Evidlo/remarkable_mouse>. I'm working on this
-implementation so that I can offer pre-built binaries that don't require a
-specific language to be installed on the host machine.
-
-## Code And Developer Documentation
-
-This README contains how-to information for installing, configuration, and using
-the project. To view the code API documentation check out the
-[godocs](https://godoc.org/github.com/kevinconway/remouseable).
-
-If you would like to modify the project or add a feature then see the technical
-documentation in the `technical-documentation` directory.
-
-### Rust Conversion Status
-
-A Rust replacement is under active development beside the existing Go
-implementation. The Rust application currently supports processing local,
-recorded reMarkable Evdev streams and emitting either debug events or scaled
-mouse actions as JSON Lines. It also supports live SSH event streams using the
-original launch parameters. Live streams control the host mouse through a
-selectable host driver; local `--input-file` streams continue producing JSON
-Lines for safe, deterministic testing.
-
-Connect with a live tablet. When `--ssh-password` or `--event-file` are
-omitted, the Rust application prompts for them. The event-file prompt defaults
-to `/dev/input/event1`:
-
-```shell
-cargo run --
-cargo run -- --ssh-password="TABLET_PASSWORD" --event-file="/dev/input/event1"
-```
-
-For lowest live-input latency, use the optimized release binary:
-
-```shell
-cargo build --release
-target/release/remouseable
-```
-
-Password-less agent authentication uses `SSH_AUTH_SOCK` or `--ssh-socket` when
-`--ssh-password=""` is passed explicitly.
-Use `--ssh-known-hosts <PATH>` to verify the tablet host key. Host-key
-verification remains disabled by default for compatibility with the Go
-application and emits a warning.
-
-On Linux Wayland sessions, the Rust application automatically uses a Linux-only
-`uinput` virtual mouse backend. On Hyprland, it reads the focused monitor's
-logical size from `hyprctl monitors -j`, then emits relative mouse movement in
-small frames so Hyprland/libinput can apply the full tablet-to-screen range. This
-requires write access to `/dev/uinput`; if opening the device fails, configure
-udev permissions or run with appropriate privileges. Use `--host-driver=enigo`
-to force the existing cross-platform backend, `--host-driver=uinput` to force
-the Wayland-friendly virtual mouse backend, or `--host-driver=uinput-tablet` to
-try the experimental absolute virtual tablet backend. The tablet backend is not
-the default because it did not work reliably in Hyprland testing.
-
-Windows and macOS continue to use the Enigo backend. The Linux-only `evdev`
-dependency and uinput code are compiled only for Linux targets. On Windows,
-`--host-driver=auto` resolves to Enigo; `--host-driver=uinput` and
-`--host-driver=uinput-tablet` return a Linux-only error.
-
-Run a local raw event stream with:
-
-```shell
-cargo run -- --input-file path/to/events.bin
-```
-
-Print decoded raw events with:
-
-```shell
-cargo run -- --input-file path/to/events.bin --debug-events
-```
-
-Validate the Rust implementation with:
-
-```shell
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
-```
-
-## Installation
-
-### Windows
-
-Go to <https://github.com/kevinconway/remouseable/releases/latest> and download
-the file named `windows.exe`. Then rename the file to `remouseable.exe`. You
-can now open the Windows command prompt and start the program with:
-
-```shell
-cd Downloads
-remouseable.exe
-```
-
-If a new version of the program comes out then you can overwrite your
-`remouseable.exe` with a new version using exactly the same steps.
-
-### OSX
-
-Go to <https://github.com/kevinconway/remouseable/releases/latest> and download
-the file named `osx-arm` if using an M series model or `osx-amd` if using a
-model older than M1. Then rename the file to `remouseable`. Next, make the
-program runnable with by opening a command line prompt and:
-
-```shell
-cd ~/Downloads
-chmod +x remouseable
-```
-
-You can now run the program by opening a command line prompt and:
-
-```shell
-cd ~/Downloads
-./remouseable
-```
-
-Note that the first time you run the application your system will prompt you
-with a security notice. The remouseable application works by controlling your
-mouse and OSX does not allow this by default. To enable the application you
-must grant your command line prompt accessibility settings which allow it to
-move the mouse. To do this, navigate to
-`System Preferences -> Security & Privacy -> Privacy -> Accessibility`. You will
-see your terminal or shell in the list of applications that have requested
-accessibility permissions.
-
-If you'd like to be able to launch the application through spotlight instead of
-only the terminal then check out <https://github.com/isaacwisdom/reMouseableApp>
-where another developer has created an Applscript wrapper that makes remouseable
-act more like a typical OSX application.
-
-### Linux
-
-Go to <https://github.com/kevinconway/remouseable/releases/latest> and download
-the file named `linux`. Then rename the file to `remouseable`. Next, make the
-program runnable with by opening a command line prompt and:
-
-```shell
-cd ~/Downloads
-chmod +x remouseable
-```
-
-You can now run the program by opening a command line prompt and:
-
-```shell
-cd ~/Downloads
-./remouseable
-```
-
-The original Go implementation only works reliably in an X11 environment. The
-Rust implementation adds Wayland support on Linux through `--host-driver=uinput`,
-which is selected automatically when `XDG_SESSION_TYPE=wayland`. This backend
-creates a virtual relative mouse through `/dev/uinput`, so the user running
-`remouseable` must have permission to open `/dev/uinput`.
-
-Hyprland support is partially validated. The Rust backend detects the focused
-monitor's logical dimensions with `hyprctl monitors -j`; a 1920x1200 monitor at
-scale 1.50 is treated as 1280x800 logical pixels. If automatic detection is
-wrong, override it with `--screen-width` and `--screen-height`. X11 hosts can
-force the classic path with `--host-driver=enigo`.
-
-## Usage
-
-Most settings default to the correct values. The only value you should need to
-set in the common case is the SSH password for the tablet. This password value
-is found in the settings menu under `Help` and then `Copyrights and licenses`.
-Your password will be near the bottom of the page. If you have an older tablet
-that has not been updated to the latest software then your password may be
-found in the `About` tab of the tablet menu at the bottom of the `General
-Information` section. The Rust application prompts for this password when you
-run it without `--ssh-password`:
-
-```bash
-remouseable
-```
-
-You may also give the password as text:
-
-```bash
-remouseable --ssh-password="XYZ123"
-```
-
-Run one of these commands with your device connected over USB and your stylus
-will become a mouse. The stylus is actually active _before_ it touches the
-screen. This means you can see your mouse move by hovering the stylus just above
-the writing surface but without directly touching the tablet. Once you touch the
-tablet surface with the stylus the computer mouse will click and hold down the
-left mouse button while you write or draw and then release the button when you
-lift the stylus.
-
-### reMarkable 2 Tablets
-
-The application should work with both reMarkable and reMarkable 2 tablets.
-The Rust event-file prompt defaults to `/dev/input/event1`, which is commonly
-needed for reMarkable 2 tablets. You can still override it with
-`--event-file="/dev/input/event0"` or by entering another path at the prompt.
-
-### Wireless Tablet
-
-The default expectation is that you will have your tablet connected over USB
-which makes the default `10.11.99.1` address available. However, it is also
-possible to access your device over wifi. If you attempt this method then you
-will need to arrange for a static, or at least consistent, IP address for the
-tablet. This is something you can usually do through configuring your router to
-assign a fixed IP address to the device based on the hardware MAC address.
-
-If you cannot assign the same `10.11.99.1` address in your setup then you may
-override the default IP address when running the application:
-
-### Advanced SSH Setup
-
-By default, the tablet only accepts the root password for authentication. It is
-possible, though, to install a custom public key on the device so that you can
-use either password-less authentication or use a key pair that is encrypted with
-the password of your choice rather than the device's default password.
-
-If you'd like to create a key pair especially for accessing the reMarkable
-tablet then start with a guide like
-<https://help.github.com/en/articles/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent>
-that walks through creating a new key pair and registering it with your SSH
-agent. For even more advanced SSH users, such as those using the gpg-agent as
-the SSH agent, the remouseable application will talk to any valid SSH agent
-implementation so long as the `SSH_AUTH_SOCK` value is set correctly.
-
-Once you have a key pair ready, copy the public key value from `ssh-add -L` for
-the key you want to use. Then copy the key over to your tablet with:
-
-```bash
-ssh root@10.11.99.1 # This will prompt for password.
-mkdir -p ~/.ssh # This directory does not exist by default.
-echo 'INSERT YOUR PUBLIC KEY HERE' >> ~/.ssh/authorized_keys
-```
-
-Now future connections over SSH will leverage your key pair and you can omit
-the usual password flag when running the application.
-
-Note that windows builds cannot use this option due to incompatibilities with
-the current version of the windows ssh-agent.
-
-Note that if you encounter the `Invalid MIT-MAGIC-COOKIE-1 key` error it means
-that most likely the ssh fingerprint of the device might have changed to an
-update of the tablet OS. Follow the ssh suggestion of removing the outdated
-fingerprint then if you are satisfied that your device is indeed the right one
-try connecting again.
-
-```bash
-remouseable --ssh-ip="192.168.1.110:22" # or other IP
-```
-
-### All Options
-
-```
-$ remouseable -h
-Usage of remouseable:
-      --debug-events             Stream hardware events from the tablet instead of acting as a mouse. This is for debugging.
-      --disable-drag-event       Disable use of the custom OSX drag event. Only use this drawing on an Apple device is not working as expected.
-      --event-file string        The path on the tablet from which to read evdev events. Prompts when omitted for live SSH runs.
-      --host-driver string       Host mouse injection backend. Choices are auto, enigo, uinput, and uinput-tablet. (default "auto")
-      --orientation string       Orientation of the tablet. Choices are vertical, right, and left (default "right")
-      --pressure-threshold int   Change the click detection sensitivity. 1000 is when the pen makes contact with the tablet. Set higher to require more pen pressure for a click. (default 1000)
-      --screen-height int        Override detected host screen height.
-      --screen-width int         Override detected host screen width.
-      --ssh-ip string            The host and port of a tablet. (default "10.11.99.1:22")
-      --ssh-password string      An optional password to use when ssh-ing into the tablet. Prompts when omitted or set to "-".
-      --ssh-socket string        Path to the SSH auth socket. This must not be empty if using public/private keypair authentication.
-      --ssh-user string          The ssh username to use when logging into the tablet. (default "root")
-      --tablet-height int        The max units per millimeter for the hight of the tablet. Probably don't change this. (default 15725)
-      --tablet-width int         The max units per millimeter for the width of the tablet. Probably don't change this. (default 20967)
-pflag: help requested
-exit status 2
-```
-
-## Common Issues And Solutions
-
-### OSX Privacy Settings
-
-If you are using this on an Apple or OSX device then you will need to give the
-terminal or shell you are using permissions to control your mouse. Mouse
-permissions are treated as an accessibility feature. If you are not prompted by
-the operating system to update your permissions the first time you run the
-application then you can navigate to
-`System Preferences -> Security & Privacy -> Privacy -> Accessibility`. You will
-see your terminal or shell in the list of applications that have requested
-accessibility permissions.
-
-### Getting "panic: dial unix: missing address" On Windows
-
-This error message happens most often when the `--ssh-password` flag is missing
-when running the application. On Windows, you must run the application with
-either `remouseable.exe --ssh-password="MYPASSWORD"` or
-`remouseable.exe --ssh-password="-"`.
-
-## Building
-
-There are pre-built binaries attached to each release that should work for all
-64bit versions of linux, osx, and windows. However, if you prefer to generate
-your own build then the following sections detail building a binary on
-different platforms.
-
-### Linux
-
-Linux builds are dependent on:
-
-- gcc
-- x11 dev headers
-- xtst dev headers
-- xorg dev headers
-
-These package will vary by name depending on your chosen linux distro. Debian
-and Ubuntu users can install these with:
-
-```shell
-apt-get install -y gcc libc6-dev libx11-dev xorg-dev libxtst-dev
-```
-
-From there you run `make build`.
-
-### OSX
-
-OSX builds will require xcode and the xcode command line tools. These must be
-installed through the Apple store.
-
-Beyond xcode the build also requires installing support for gnu make if you want
-to use the Makefile for generating a build. Homebrew users can install this
-with:
-
-```shell
-brew install make coreutils findutils gnu-tar gnu-sed gawk gnutls gnu-indent gnu-getopt grep
-export PATH="$(brew --prefix)/opt/make/libexec/gnubin:${PATH}"
-```
-
-From there you run `make build`.
-
-### Windows
-
-Windows builds require a GCC implementation. I recommend
-<https://jmeubank.github.io/tdm-gcc/>. During installation you will be given the
-option to add the GCC install to your path. If you choose not to then you will
-need to temporarily add it to your path in PowerShell with:
-
-```shell
-$env:Path += ";C:\TDM-GCC-64\bin\"
-```
-
-The included Makefile contains too many bash specific commands to work in
-PowerShell but you can still generate a binary by running:
-
-```shell
-go build main.go
-```
-
-#### Windows On Linux
-
-If you want to generate a windows build from a linux machine then you will need
-to install a MinGW implementation. Debian and Ubuntu users can do this with:
-
-```shell
-apt-get install -y gcc-multilib gcc-mingw-w64
-```
-
-The included Makefile does not have a build option for this but you can generate
-the binary with:
-
-```shell
-CC=x86_64-w64-mingw32-gcc GOOS=windows go build main.go
-```
+Use a reMarkable tablet as a host mouse.
+
+This repository is now a Rust rewrite of Kevin Conway's original
+[`remouseable`](https://github.com/kevinconway/remouseable) project. The legacy
+Go implementation and documentation are no longer present.
+The active implementation is the Rust crate in `src/`.
+
+## Current Status
+
+The Rust conversion is functional and has replaced the original Go runtime for
+active development.
+
+Validated so far:
+
+- Live SSH event streaming from a reMarkable 2 using password authentication.
+- Default reMarkable 2 event path `/dev/input/event1`.
+- Windows host mouse control through Enigo.
+- Linux Wayland host mouse control through a `/dev/uinput` virtual mouse.
+- Hyprland focused-monitor detection with logical screen scaling.
+- Local raw evdev stream processing for deterministic debugging and tests.
+
+Implemented but not fully validated:
+
+- Linux X11 through the Enigo backend.
+- macOS through the Enigo backend.
+- SSH agent authentication with `SSH_AUTH_SOCK` / `--ssh-socket`.
+- OpenSSH `known_hosts` verification through `--ssh-known-hosts`.
+- Experimental Linux absolute tablet injection through `--host-driver=uinput-tablet`.
+
+Known caveats:
+
+- Release packaging is not finished. Build from source for this Rust version.
+- SSH host-key verification is disabled by default for compatibility with the
+  original tool. Use `--ssh-known-hosts <PATH>` when you want verification.
+- Linux Wayland support requires permission to open `/dev/uinput`.
+- `uinput-tablet` is experimental and was not reliable in Hyprland testing.
+- Multi-monitor behavior is limited. Hyprland uses the focused monitor; other
+  systems use the primary display or first detected display unless overridden.
 
 ## How It Works
 
-The project is implemented as a set of successive layers that turn the tablet
-into a mouse. It follows as:
+`remouseable` connects to the tablet over SSH and reads raw Linux evdev input
+events from the tablet's input device. It decodes stylus coordinates and
+pressure, maps tablet coordinates to host screen coordinates, and injects host
+mouse movement/clicks through a selectable host driver.
 
--   SSH into the device and start streaming `evdev` data back to the host.
--   Convert the raw byte stream into structured `evdev` data containers.
--   Feed all events into a state machine that emits higher level state change
-    events like "CLICK" and "MOVE".
--   Use state change events as a trigger for moving or clicking the mouse
-    on the host machine.
+The Rust implementation currently uses:
 
-Each of these layers has an interface defined in the `pkg/domain.go` file.
+- `russh` with the `ring` crypto backend for SSH.
+- `enigo` for cross-platform host mouse injection.
+- Linux `evdev` + `/dev/uinput` for Wayland-friendly virtual mouse injection.
+- `display-info` for host display detection.
+- `clap` for command-line parsing.
 
-The mouse interactions on the host are performed by using a modified version of
-<https://github.com/go-vgo/robotgo>. The `pkg/internal/robotgo` directory
-contains a stripped down version of `robotgo` that contains only the portions
-required to detect the screen dimensions and send mouse events. The actual
-`robotgo` project contains support for a much larger set of features such as
-taking screen shots and controlling windows on the screen. However, each of
-those additional features comes with additional system dependencies that make
-creating a portable binary build difficult.
+## Quick Start
+
+Connect the tablet over USB, then run the release binary:
+
+```sh
+remouseable
+```
+
+The program prompts for the tablet SSH password and the remote event file. Press
+Enter at the event-file prompt to use the default reMarkable 2 path:
+
+```text
+Event file [/dev/input/event1]:
+```
+
+You can also pass both values directly:
+
+```sh
+remouseable --ssh-password="TABLET_PASSWORD" --event-file="/dev/input/event1"
+```
+
+For a wireless tablet, pass the tablet address:
+
+```sh
+remouseable --ssh-ip="192.168.1.110:22" --ssh-password="TABLET_PASSWORD" --event-file="/dev/input/event1"
+```
+
+The default USB SSH address is `10.11.99.1:22` and the default user is `root`.
+
+## Build From Source
+
+Install a stable Rust toolchain first:
+
+```sh
+rustup toolchain install stable
+rustup default stable
+```
+
+Then build the optimized binary:
+
+```sh
+cargo build --release
+```
+
+The output binary is:
+
+- Windows: `target\release\remouseable.exe`
+- Linux/macOS: `target/release/remouseable`
+
+### Windows Build Notes
+
+Use the MSVC Rust toolchain and install Visual Studio Build Tools with the C++
+toolchain and Windows SDK. Dependencies such as `ring` compile native C code and
+need a complete MSVC environment.
+
+If you see an error like `Cannot open include file: 'vcruntime.h'`, the MSVC
+environment is incomplete or the shell was not launched from a configured
+Developer PowerShell / Developer Command Prompt.
+
+Recommended setup:
+
+```powershell
+rustup toolchain install stable-x86_64-pc-windows-msvc
+rustup default stable-x86_64-pc-windows-msvc
+cargo build --release
+```
+
+### Linux Build Notes
+
+Install Rust plus native development packages. On Debian/Ubuntu, start with:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y build-essential pkg-config libx11-dev libxcb1-dev libxrandr-dev libxi-dev libxtst-dev
+cargo build --release
+```
+
+For Wayland sessions, `--host-driver=auto` selects the Linux `uinput` backend.
+The user running `remouseable` must be able to open `/dev/uinput`. Configure
+your distro's uinput permissions or run with appropriate privileges.
+
+Example udev rule pattern:
+
+```text
+KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
+```
+
+Adding a user to broad input-related groups can expose sensitive input devices.
+Use the narrowest permission model your distro supports.
+
+### macOS Build Notes
+
+Install Rust and the Xcode command-line tools:
+
+```sh
+xcode-select --install
+cargo build --release
+```
+
+macOS also requires Accessibility permission for the terminal or application
+that launches `remouseable`, because the program controls the mouse.
+
+## Usage
+
+### Host Drivers
+
+`--host-driver=auto` is the default.
+
+| Driver | Platforms | Notes |
+| --- | --- | --- |
+| `auto` | All | Uses `uinput` on Linux Wayland and Enigo otherwise. |
+| `enigo` | Windows, macOS, Linux | Cross-platform backend. Best fit for Windows, macOS, and Linux X11. |
+| `uinput` | Linux only | Relative virtual mouse for Wayland. Requires `/dev/uinput`. |
+| `uinput-tablet` | Linux only | Experimental absolute virtual tablet. Not the default. |
+
+Force a driver when needed:
+
+```sh
+remouseable --host-driver=enigo
+remouseable --host-driver=uinput
+remouseable --host-driver=uinput-tablet
+```
+
+### Debug A Tablet Stream
+
+Print decoded hardware events instead of moving the host mouse:
+
+```sh
+remouseable --debug-events --ssh-password="TABLET_PASSWORD" --event-file="/dev/input/event1"
+```
+
+Process a local captured raw evdev stream:
+
+```sh
+remouseable --input-file path/to/events.bin
+```
+
+Print decoded events from a local stream:
+
+```sh
+remouseable --input-file path/to/events.bin --debug-events
+```
+
+### Screen And Tablet Mapping
+
+The host screen size is detected automatically for live mouse control. Override
+it when detection is wrong:
+
+```sh
+remouseable --screen-width=1920 --screen-height=1080
+```
+
+Tablet coordinate defaults are tuned for the reMarkable 2:
+
+```text
+tablet width:  20967
+tablet height: 15725
+```
+
+You normally should not need to change those values.
+
+### Orientation
+
+The default orientation is `right`, matching the original project behavior.
+Available values are:
+
+- `right`
+- `left`
+- `vertical`
+
+Example:
+
+```sh
+remouseable --orientation=vertical
+```
+
+### SSH Authentication
+
+Password authentication:
+
+```sh
+remouseable --ssh-password="TABLET_PASSWORD"
+```
+
+Prompt for password:
+
+```sh
+remouseable --ssh-password="-"
+```
+
+Try SSH agent authentication by passing an empty password and making sure
+`SSH_AUTH_SOCK` is set:
+
+```sh
+remouseable --ssh-password=""
+```
+
+Use a specific agent socket:
+
+```sh
+remouseable --ssh-password="" --ssh-socket="/path/to/agent.sock"
+```
+
+Verify the tablet host key with an OpenSSH known-hosts file:
+
+```sh
+remouseable --ssh-known-hosts="$HOME/.ssh/known_hosts"
+```
+
+## Command-Line Options
+
+```text
+--input-file <INPUT_FILE>
+    Local raw Evdev stream to process instead of connecting over SSH.
+
+--debug-events
+    Stream selected hardware events instead of emitting host actions.
+
+--disable-drag-event
+    Disable custom drag events and emit ordinary movement while clicked.
+
+--host-driver <auto|enigo|uinput|uinput-tablet>
+    Host mouse injection backend. Default: auto.
+
+--orientation <right|left|vertical>
+    Tablet orientation. Default: right.
+
+--pressure-threshold <PRESSURE_THRESHOLD>
+    Pen pressure value considered contact. Default: 1000.
+
+--screen-height <SCREEN_HEIGHT>
+--screen-width <SCREEN_WIDTH>
+    Override detected host screen size.
+
+--tablet-height <TABLET_HEIGHT>
+--tablet-width <TABLET_WIDTH>
+    Tablet coordinate bounds. Defaults: 15725 x 20967.
+
+--event-file <EVENT_FILE>
+    Remote event path. Prompts when omitted for live SSH runs.
+
+--ssh-ip <SSH_IP>
+    Tablet SSH address. Default: 10.11.99.1:22.
+
+--ssh-user <SSH_USER>
+    Tablet SSH user. Default: root.
+
+--ssh-password <SSH_PASSWORD>
+    Tablet SSH password. Prompts when omitted or set to "-".
+
+--ssh-socket <SSH_SOCKET>
+    SSH agent socket. Defaults to SSH_AUTH_SOCK.
+
+--ssh-known-hosts <SSH_KNOWN_HOSTS>
+    Verify the tablet host key against this OpenSSH known-hosts file.
+```
+
+## Development
+
+Run the Rust validation suite:
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test --all-targets
+cargo test --doc
+```
+
+The repository still contains Go workflows and technical documentation from the
+original implementation. Those are useful for historical context, but the Rust
+crate is the implementation being moved forward.
+
+## Original Project
+
+This project started as Kevin Conway's `remouseable`, which provided portable
+binaries for using a reMarkable tablet as a mouse. The Rust rewrite keeps the
+same core launch parameters where practical while adding modern SSH handling,
+local event replay, and Linux Wayland support.
+
+The original Go documentation remains in `technical-documentation/`.
 
 ## License
 
-    remouseable is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License version 3 as published
-    by the Free Software Foundation.
+`remouseable` is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License version 3 as published by the Free
+Software Foundation.
 
-    remouseable is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+`remouseable` is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License
-    along with remouseable.  If not, see <https://www.gnu.org/licenses/>
-
-## Developing
-
-This project is go1.16+ compatible. A Makefile is included to make some things
-easier. Some make targets of note:
-
--   make generate
-
-    Re-generate any automatically generated code. Note that there is a gomock
-    bug making it necessary to manually modify the files after generation
-    because it adds a cyclical import.
-
--   make test
-
-    Run all the unit tests and generate a coverage report in `.coverage/`.
-
--   make lint
-
-    Run the golangci-lint suite using the included configuration.
-
--   make fmt
-
-    Apply `goimports` formatting.
-
--   make build
-
-    Generate a binary from the current project state.
-
--   make tools
-
-    Generate a `.bin/` directory that contains a built version of each of the
-    tools used to build and test the project.
-
--   make update / make updatetools
-
-    Run `go get -u` for the project or for the project tooling.
-
--   make clean / make cleantools / make cleancoverage
-
-    Remove files generated by the Makefile. The top-level `clean` should remove
-    all artifacts such as `./bin` and `./coverage`. The other are scoped to
-    specific artifacts for cases where, for example, you want to remove old
-    coverage reports and regenerate them.
+You should have received a copy of the GNU General Public License along with
+`remouseable`. If not, see <https://www.gnu.org/licenses/>.
 
 ## Thanks
 
-I used the <https://github.com/gvalkov/golang-evdev> project as a reference when
-implementing the `evdev` parser. I didn't use it directly because it is very
-much oriented towards directly opening and managing a file descriptor for a
-device. This project needs to read data from a remote device.
+Thanks to [Kevin Conway](https://github.com/kevinconway/) for creating the
+original project.
 
-I used the <https://github.com/go-vgo/robotgo> project as the basis for
-interacting with the operating system. I embedded portions of it here instead
-of importing the Go package in order to limit the number of dependencies
-required to build the project.
+The original implementation referenced
+[`golang-evdev`](https://github.com/gvalkov/golang-evdev) for evdev parsing and
+embedded parts of [`robotgo`](https://github.com/go-vgo/robotgo) for host mouse
+control. The Rust rewrite now uses native Rust dependencies for those layers.
