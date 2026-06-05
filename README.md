@@ -4,6 +4,7 @@
 > Use your reMarkable tablet as a mouse.
 
 - [reMouseable](#remouseable)
+  - [Update From June 5th, 2026](#update-from-june-5-2026)
   - [Update From September 19, 2024](#update-from-september-19-2024)
   - [Overview](#overview)
   - [Code And Developer Documentation](#code-and-developer-documentation)
@@ -28,6 +29,20 @@
   - [License](#license)
   - [Developing](#developing)
   - [Thanks](#thanks)
+
+## Update From June 5, 2026
+
+Hi there, this is a 99% vibe coded rebuild of remouseable using Rust. I know, vibe coded yuck, but it works.
+This should cross compile to Windows and Linux with support for X11 and Wayland. I have only tested on
+Windows and Wayland on Linux, so mileage may vary with X11. Goal of this was really just to learn about Rust,
+and have a Rust version of the program that can be compiled and independent.
+I'll continue to try and maintain it, but I only have a reMarkable 2 and I will primarily be using it on a
+Wayland based Linux system. Feel free to fork it and do whatever you'd like with it.
+I want to give a huge thank you to [Kevin Conway](https://github.com/kevinconway/) for creating this originally.
+If anyone has any suggestions to improve, simplify, or move this forward in any way, please put in a PR. 
+
+The documentation below still somewhat applies, I tried to maintain the original launch
+paramters, but added in a default for easier rm2 usage. 
 
 ## Update From September 19, 2024
 
