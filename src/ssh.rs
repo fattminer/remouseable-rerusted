@@ -16,7 +16,12 @@ use russh::{
 use std::{
     io::{self, Read},
     path::PathBuf,
-    sync::{Arc, mpsc},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
+    time::Duration,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -42,6 +47,8 @@ impl client::Handler for Client {
         &mut self,
         server_public_key: &ssh_key::PublicKey,
     ) -> Result<bool, Self::Error> {
+        // Preserve compatibility when no known_hosts file is configured. When a
+        // file is provided, delegate verification to russh's OpenSSH parser.
         let Some(path) = &self.known_hosts else {
             return Ok(true);
         };
@@ -55,6 +62,7 @@ pub struct SshEventReader {
     receiver: mpsc::Receiver<Result<Bytes, String>>,
     current: Bytes,
     offset: usize,
+    cancel: Arc<AtomicBool>,
 }
 
 impl Read for SshEventReader {
@@ -64,13 +72,21 @@ impl Read for SshEventReader {
         }
 
         while self.offset >= self.current.len() {
-            match self.receiver.recv() {
+            // Stop button path: report clean EOF to the event decoder.
+            if self.cancel.load(Ordering::Relaxed) {
+                return Ok(0);
+            }
+
+            // Timeout lets cancellation be noticed even when the tablet is idle
+            // and no SSH bytes are arriving.
+            match self.receiver.recv_timeout(Duration::from_millis(50)) {
                 Ok(Ok(bytes)) if bytes.is_empty() => {}
                 Ok(Ok(bytes)) => {
                     self.current = bytes;
                     self.offset = 0;
                 }
                 Ok(Err(error)) => return Err(io::Error::other(error)),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(_) => return Ok(0),
             }
         }
@@ -90,7 +106,25 @@ impl Read for SshEventReader {
 /// Returns an error when parameters are invalid, the connection fails,
 /// authentication fails, or the remote event command cannot start.
 pub fn open_event_stream(options: &SshOptions) -> io::Result<SshEventReader> {
+    open_event_stream_with_cancel(options, Arc::new(AtomicBool::new(false)))
+}
+
+/// Opens a blocking reader backed by a live SSH event stream.
+///
+/// The returned reader stops cleanly when `cancel` becomes true.
+///
+/// # Errors
+///
+/// Returns an error when parameters are invalid, the connection fails,
+/// authentication fails, or the remote event command cannot start.
+pub fn open_event_stream_with_cancel(
+    options: &SshOptions,
+    cancel: Arc<AtomicBool>,
+) -> io::Result<SshEventReader> {
     validate_event_file(&options.event_file)?;
+
+    // One Tokio worker is enough: SSH pushes bytes into a blocking mpsc channel,
+    // then the rest of the app stays synchronous.
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .enable_all()
@@ -102,6 +136,7 @@ pub fn open_event_stream(options: &SshOptions) -> io::Result<SshEventReader> {
         receiver,
         current: Bytes::new(),
         offset: 0,
+        cancel,
     })
 }
 
@@ -123,6 +158,7 @@ async fn connect_and_spawn(
         .await
         .map_err(ssh_error)?;
 
+    // Empty password means "try agent"; non-empty means password auth.
     let authenticated = if options.password.is_empty() {
         authenticate_agent(&mut session, &options.user, &options.agent_socket).await?
     } else {
@@ -145,6 +181,8 @@ async fn connect_and_spawn(
         .await
         .map_err(ssh_error)?;
 
+    // Forward SSH stdout chunks to blocking readers. Stderr is kept only for a
+    // useful error if the remote `cat` command exits nonzero.
     tokio::spawn(async move {
         let mut exit_status = None;
         let mut stderr = Vec::new();
@@ -272,6 +310,7 @@ fn invalid_address(address: &str) -> io::Error {
 }
 
 fn validate_event_file(path: &str) -> io::Result<()> {
+    // Avoid shell metacharacters because path is inserted into a remote command.
     if path.starts_with('/')
         && path.len() > 1
         && path
@@ -293,6 +332,7 @@ fn event_command(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicBool;
 
     #[test]
     fn accepts_original_event_paths() {
@@ -322,5 +362,25 @@ mod tests {
             ("remarkable.local".to_owned(), 2222)
         );
         assert_eq!(parse_address("[::1]:22").unwrap(), ("::1".to_owned(), 22));
+    }
+
+    #[test]
+    fn reader_stops_when_cancelled() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (_sender, receiver) = mpsc::channel();
+        let cancel = Arc::new(AtomicBool::new(true));
+        let mut reader = SshEventReader {
+            _runtime: runtime,
+            receiver,
+            current: Bytes::new(),
+            offset: 0,
+            cancel,
+        };
+        let mut output = [0_u8; 1];
+
+        assert_eq!(reader.read(&mut output).unwrap(), 0);
     }
 }

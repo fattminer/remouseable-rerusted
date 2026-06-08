@@ -1,0 +1,382 @@
+import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+
+// Text inputs use a custom wrapper so text and placeholder colors remain readable
+// across Slint themes and OS palette choices.
+component ReadableLineEdit inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder-text;
+    in property <InputType> input-type: InputType.text;
+
+    height: 36px;
+    min-width: 160px;
+    background: #ffffff;
+    border-color: input.has-focus ? #2563eb : #94a3b8;
+    border-width: 1px;
+    border-radius: 4px;
+    clip: true;
+
+    // Placeholder text is drawn separately because TextInput does not provide a
+    // directly styleable placeholder color.
+    Text {
+        x: 10px;
+        y: 0px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text: root.text == "" ? root.placeholder-text : "";
+        color: #64748b;
+        vertical-alignment: center;
+    }
+
+    // Actual editable field. Two-way binding lets Rust read latest UI values
+    // without extra synchronization code.
+    input := TextInput {
+        x: 10px;
+        y: 0px;
+        width: parent.width - 20px;
+        height: parent.height;
+        text <=> root.text;
+        input-type: root.input-type;
+        color: #111827;
+        selection-foreground-color: #000000;
+        selection-background-color: #2563eb;
+        vertical-alignment: center;
+    }
+}
+
+// Small hand-built combobox for tablet orientation. The standard ComboBox keeps
+// selected text color theme-owned, so this draws selected text explicitly black.
+component OrientationCombo inherits Rectangle {
+    in-out property <string> value;
+
+    height: 36px;
+    min-width: 160px;
+    background: #ffffff;
+    border-color: #94a3b8;
+    border-width: 1px;
+    border-radius: 4px;
+
+    // Whole closed control opens the popup, matching normal combobox behavior.
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { popup.show(); }
+    }
+
+    Text {
+        x: 10px;
+        y: 0px;
+        width: parent.width - 32px;
+        height: parent.height;
+        text: root.value;
+        color: #000000;
+        vertical-alignment: center;
+    }
+
+    Text {
+        x: parent.width - 22px;
+        y: 0px;
+        width: 16px;
+        height: parent.height;
+        text: "v";
+        color: #000000;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    // Popup is one bordered panel with contiguous rows, so choices look attached.
+    popup := PopupWindow {
+        width: root.width;
+        height: 108px;
+
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: #ffffff;
+            border-color: #94a3b8;
+            border-width: 1px;
+            border-radius: 4px;
+            clip: true;
+
+            VerticalBox {
+                padding: 0px;
+                spacing: 0px;
+
+                Rectangle {
+                    height: 36px;
+                    background: root.value == "right" ? #dbeafe : #ffffff;
+                    TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "right"; popup.close(); } }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "right"; color: #000000; vertical-alignment: center; }
+                }
+                Rectangle { height: 1px; background: #e5e7eb; }
+                Rectangle {
+                    height: 35px;
+                    background: root.value == "left" ? #dbeafe : #ffffff;
+                    TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "left"; popup.close(); } }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "left"; color: #000000; vertical-alignment: center; }
+                }
+                Rectangle { height: 1px; background: #e5e7eb; }
+                Rectangle {
+                    height: 35px;
+                    background: root.value == "vertical" ? #dbeafe : #ffffff;
+                    TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "vertical"; popup.close(); } }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "vertical"; color: #000000; vertical-alignment: center; }
+                }
+            }
+        }
+    }
+}
+
+// Same custom combobox pattern for native host driver selection.
+component DriverCombo inherits Rectangle {
+    in-out property <string> value;
+
+    height: 36px;
+    min-width: 160px;
+    background: #ffffff;
+    border-color: #94a3b8;
+    border-width: 1px;
+    border-radius: 4px;
+
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { popup.show(); }
+    }
+
+    Text {
+        x: 10px;
+        y: 0px;
+        width: parent.width - 32px;
+        height: parent.height;
+        text: root.value;
+        color: #000000;
+        vertical-alignment: center;
+    }
+
+    Text {
+        x: parent.width - 22px;
+        y: 0px;
+        width: 16px;
+        height: parent.height;
+        text: "v";
+        color: #000000;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    popup := PopupWindow {
+        width: root.width;
+        height: 144px;
+
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: #ffffff;
+            border-color: #94a3b8;
+            border-width: 1px;
+            border-radius: 4px;
+            clip: true;
+
+            VerticalBox {
+                padding: 0px;
+                spacing: 0px;
+
+                Rectangle {
+                    height: 36px;
+                    background: root.value == "auto" ? #dbeafe : #ffffff;
+                    TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "auto"; popup.close(); } }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "auto"; color: #000000; vertical-alignment: center; }
+                }
+                Rectangle { height: 1px; background: #e5e7eb; }
+                Rectangle {
+                    height: 35px;
+                    background: root.value == "enigo" ? #dbeafe : #ffffff;
+                    TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "enigo"; popup.close(); } }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "enigo"; color: #000000; vertical-alignment: center; }
+                }
+                Rectangle { height: 1px; background: #e5e7eb; }
+                Rectangle {
+                    height: 35px;
+                    background: root.value == "uinput" ? #dbeafe : #ffffff;
+                    TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "uinput"; popup.close(); } }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "uinput"; color: #000000; vertical-alignment: center; }
+                }
+                Rectangle { height: 1px; background: #e5e7eb; }
+                Rectangle {
+                    height: 35px;
+                    background: root.value == "uinput-tablet" ? #dbeafe : #ffffff;
+                    TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "uinput-tablet"; popup.close(); } }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "uinput-tablet"; color: #000000; vertical-alignment: center; }
+                }
+            }
+        }
+    }
+}
+
+export component RemouseableWindow inherits Window {
+    title: "reMouseable";
+    min-width: 520px;
+    min-height: 560px;
+
+    in-out property <string> ssh-ip: "10.11.99.1:22";
+    in-out property <string> ssh-user: "root";
+    in-out property <string> ssh-password: "";
+    in-out property <string> event-file: "/dev/input/event1";
+    in-out property <string> orientation: "right";
+    in-out property <string> host-driver: "auto";
+    in-out property <string> pressure-threshold: "1000";
+    in-out property <bool> disable-drag-event: false;
+    in-out property <bool> running: false;
+    in-out property <string> status-text: "Ready";
+
+    // Rust handles long-running work. Slint only emits user intent with current
+    // control values.
+    callback start-requested(string, string, string, string, string, string, string, bool);
+    callback stop-requested();
+
+    background: #f8fafc;
+
+    VerticalBox {
+        padding: 20px;
+        spacing: 14px;
+
+        Text {
+            text: "reMouseable";
+            font-size: 28px;
+            font-weight: 700;
+            color: #111827;
+        }
+
+        Text {
+            text: "Connect a reMarkable tablet and stream stylus events to the host mouse.";
+            color: #4b5563;
+            wrap: word-wrap;
+        }
+
+        Rectangle {
+            height: 1px;
+            background: #d1d5db;
+        }
+
+        Text { text: "Connection"; font-weight: 700; color: #111827; }
+
+        Text { text: "SSH address"; color: #374151; }
+        ReadableLineEdit { text <=> root.ssh-ip; placeholder-text: "10.11.99.1:22"; }
+
+        Text { text: "SSH user"; color: #374151; }
+        ReadableLineEdit { text <=> root.ssh-user; placeholder-text: "root"; }
+
+        Text { text: "SSH password"; color: #374151; }
+        ReadableLineEdit {
+            text <=> root.ssh-password;
+            placeholder-text: "Tablet password";
+            input-type: InputType.password;
+        }
+
+        Text { text: "Event file"; color: #374151; }
+        ReadableLineEdit { text <=> root.event-file; placeholder-text: "/dev/input/event1"; }
+
+        Text { text: "Behavior"; font-weight: 700; color: #111827; }
+
+        // Start/Stop are custom buttons so label color stays black.
+        HorizontalBox {
+            spacing: 12px;
+
+            VerticalBox {
+                Text { text: "Orientation"; color: #374151; }
+                OrientationCombo { value <=> root.orientation; }
+            }
+
+            VerticalBox {
+                Text { text: "Host driver"; color: #374151; }
+                DriverCombo { value <=> root.host-driver; }
+            }
+        }
+
+        Text { text: "Pressure threshold"; color: #374151; }
+        ReadableLineEdit { text <=> root.pressure-threshold; placeholder-text: "1000"; }
+
+        // Switch {
+        //     text: "Disable custom drag event";
+        //     checked <=> root.disable-drag-event;
+        // }
+
+        Rectangle {
+            height: 1px;
+            background: #d1d5db;
+        }
+
+        HorizontalBox {
+            spacing: 12px;
+
+            Rectangle {
+                width: 96px;
+                height: 36px;
+                background: root.running ? #e5e7eb : start-touch.pressed ? #d1d5db : #ffffff;
+                border-color: #111827;
+                border-width: 1px;
+                border-radius: 4px;
+
+                start-touch := TouchArea {
+                    width: parent.width;
+                    height: parent.height;
+                    enabled: !root.running;
+                    clicked => {
+                        root.start-requested(
+                            root.ssh-ip,
+                            root.ssh-user,
+                            root.ssh-password,
+                            root.event-file,
+                            root.orientation,
+                            root.host-driver,
+                            root.pressure-threshold,
+                            root.disable-drag-event,
+                        );
+                    }
+                }
+
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: root.running ? "Running" : "Start";
+                    color: #000000;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+
+            Rectangle {
+                width: 96px;
+                height: 36px;
+                background: root.running ? stop-touch.pressed ? #d1d5db : #ffffff : #e5e7eb;
+                border-color: #111827;
+                border-width: 1px;
+                border-radius: 4px;
+
+                stop-touch := TouchArea {
+                    width: parent.width;
+                    height: parent.height;
+                    enabled: root.running;
+                    clicked => {
+                        root.stop-requested();
+                    }
+                }
+
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "Stop";
+                    color: #000000;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        Text {
+            text: root.status-text;
+            color: root.running ? #047857 : #374151;
+            wrap: word-wrap;
+        }
+    }
+}

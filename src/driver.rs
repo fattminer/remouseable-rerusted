@@ -7,7 +7,10 @@
 use crate::{HostDriver, MouseButton};
 use display_info::DisplayInfo;
 use enigo::{Button, Coordinate, Direction, Enigo, Mouse, Settings};
-use std::{io, process::Command, thread, time::Duration};
+use std::{io, process::Command};
+
+#[cfg(target_os = "linux")]
+use std::{thread, time::Duration};
 
 #[cfg(target_os = "linux")]
 use evdev::{

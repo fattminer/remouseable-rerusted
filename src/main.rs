@@ -20,8 +20,13 @@ use std::{
 
 const DEFAULT_EVENT_FILE: &str = "/dev/input/event1";
 
+mod ui;
+
+/// Command-line representation of tablet orientation.
+///
+/// The UI uses strings for the same values, then converts back to this enum.
 #[derive(Clone, Copy, Debug, ValueEnum)]
-enum OrientationArg {
+pub(crate) enum OrientationArg {
     Right,
     Left,
     Vertical,
@@ -37,8 +42,9 @@ impl From<OrientationArg> for Orientation {
     }
 }
 
+/// Command-line representation of the native input backend.
 #[derive(Clone, Copy, Debug, ValueEnum)]
-enum HostDriverArg {
+pub(crate) enum HostDriverArg {
     Auto,
     Enigo,
     Uinput,
@@ -56,9 +62,13 @@ impl From<HostDriverArg> for DriverKind {
     }
 }
 
-#[derive(Debug, Parser)]
+#[derive(Clone, Debug, Parser)]
 #[command(version, about)]
-struct Args {
+pub(crate) struct Args {
+    /// Stay in terminal mode instead of opening the Slint frontend.
+    #[arg(long)]
+    tui: bool,
+
     /// Local raw Evdev stream to process instead of connecting over SSH.
     #[arg(long)]
     input_file: Option<PathBuf>,
@@ -125,6 +135,15 @@ struct Args {
 }
 
 fn run(args: &Args) -> Result<(), Box<dyn Error>> {
+    // UI is the default launch mode. `--tui` intentionally preserves terminal
+    // prompts, stdout JSON output, and visible console.
+    if !args.tui {
+        hide_console_window();
+        return ui::run_ui(args);
+    }
+
+    // Local input files are deterministic test/debug streams. Without one,
+    // connect to the tablet over SSH and read the remote event device.
     let is_live = args.input_file.is_none();
     let input: Box<dyn Read> = if let Some(input_file) = &args.input_file {
         Box::new(BufReader::new(File::open(input_file)?))
@@ -147,12 +166,15 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     };
     let mut output = BufWriter::new(io::stdout().lock());
 
+    // Debug mode prints raw selected events instead of driving the host mouse.
     if args.debug_events {
         debug_events(input, &mut output)?;
         output.flush()?;
         return Ok(());
     }
 
+    // Live mode injects native mouse events. Local mode writes JSON actions so
+    // event processing can be tested without moving the cursor.
     if is_live {
         let driver = NativeDriver::new(args.host_driver.into())?;
         let (detected_width, detected_height) = driver.screen_size()?;
@@ -165,13 +187,16 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
 }
 
 fn ssh_password_or_prompt(password: Option<&str>) -> io::Result<String> {
+    // `-` preserves original CLI behavior: ask interactively instead of taking
+    // password from command history.
     match password {
         Some("-") | None => rpassword::prompt_password("SSH password: "),
         Some(password) => Ok(password.to_owned()),
     }
 }
 
-fn event_file_or_prompt(event_file: Option<&str>) -> io::Result<String> {
+pub(crate) fn event_file_or_prompt(event_file: Option<&str>) -> io::Result<String> {
+    // Keep the historical default visible for terminal users.
     match event_file {
         Some(event_file) => Ok(event_file.to_owned()),
         None => prompt_with_default(
@@ -202,7 +227,8 @@ fn prompt_with_default<R: BufRead, W: Write>(
     }
 }
 
-fn config(args: &Args, default_width: i32, default_height: i32) -> Config {
+pub(crate) fn config(args: &Args, default_width: i32, default_height: i32) -> Config {
+    // Runtime config is shared by UI and TUI paths.
     Config {
         orientation: args.orientation.into(),
         tablet_width: args.tablet_width,
@@ -214,7 +240,29 @@ fn config(args: &Args, default_width: i32, default_height: i32) -> Config {
     }
 }
 
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn hide_console_window() {
+    use windows_sys::Win32::{
+        System::Console::GetConsoleWindow,
+        UI::WindowsAndMessaging::{SW_HIDE, ShowWindow},
+    };
+
+    // Windows exposes console visibility through raw Win32 calls.
+    unsafe {
+        let window = GetConsoleWindow();
+        if !window.is_null() {
+            ShowWindow(window, SW_HIDE);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hide_console_window() {}
+
 fn main() -> ExitCode {
+    // Keep user-facing failures short and stable: no panic backtraces for
+    // ordinary connection/configuration problems.
     match run(&Args::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -305,8 +353,16 @@ mod tests {
     fn omits_prompted_live_values_from_cli_defaults() {
         let args = Args::try_parse_from(["remouseable"]).unwrap();
 
+        assert!(!args.tui);
         assert_eq!(args.ssh_password, None);
         assert_eq!(args.event_file, None);
+    }
+
+    #[test]
+    fn parses_terminal_mode_flag() {
+        let args = Args::try_parse_from(["remouseable", "--tui"]).unwrap();
+
+        assert!(args.tui);
     }
 
     #[test]
