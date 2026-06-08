@@ -6,7 +6,7 @@ tags:
   - index
   - project/remouseable
 status: active
-updated: 2026-06-04
+updated: 2026-06-08
 ---
 
 # reMouseable Project Index
@@ -23,12 +23,17 @@ updated: 2026-06-04
 ## Repository
 
 - Local repository: `C:\Users\mfiner\GIT\remouseable`
+- Rust fork: [github.com/fattminer/remouseable-rerusted](https://github.com/fattminer/remouseable-rerusted)
 - Upstream: [github.com/kevinconway/remouseable](https://github.com/kevinconway/remouseable)
 - Default branch: `main`
 - License: GPL-3.0
 
 ## Current Objective
 
-Assess and potentially implement a Rust replacement while preserving Windows, macOS, and Linux X11 behavior.
+Continue Rust replacement packaging and validation. Current implementation has
+real-device Windows and Hyprland/Wayland smoke validation, Linux uinput support,
+and Windows executable icon resource wiring. Remaining major work is release
+workflow cutover plus macOS, Linux X11, SSH agent, and broader real-device
+acceptance testing.
 
 ![[Project Dashboard.base#Project Notes]]

@@ -10,9 +10,9 @@ tags:
   - go
 status: active
 language: Go and Rust
-repository: /home/mfiner/Documents/GitHub/remouseable-rerusted
+repository: "C:\\Users\\mfiner\\GIT\\remouseable"
 upstream: https://github.com/kevinconway/remouseable
-updated: 2026-06-05
+updated: 2026-06-08
 priority: high
 ---
 
@@ -35,23 +35,29 @@ Project is discontinued upstream but received a compatibility fix and release wo
 Linux Wayland is partially validated on Hyprland. The Rust `auto` host driver
 selects uinput on Linux Wayland and Enigo elsewhere.
 
+Windows builds now embed the project icon as an executable resource. Use
+`remouseable-icon.png` as the source asset and `remouseable-icon.ico` as the
+generated Windows resource consumed by `build.rs`.
+
 ## Repository Snapshot
 
 | Item | Value |
 |---|---|
-| Repository root | `/home/mfiner/Documents/GitHub/remouseable-rerusted` |
+| Repository root | `C:\Users\mfiner\GIT\remouseable` |
+| Current workspace path | `C:\Users\mfiner\GIT\remouseable` |
 | Default branch | `master` locally |
 | Latest inspected commit | Recheck with `git log --oneline -1` |
 | Latest inspected commit date | Recheck locally |
 | Main language | Rust migration active; original Go docs still present upstream |
 | Native integration | Rust Enigo plus Linux uinput; original Go used vendored RobotGo C headers through CGO |
+| Windows app icon | `build.rs` embeds `remouseable-icon.ico`, generated from `remouseable-icon.png` |
 | License | GPL-3.0 |
 | CI | Recheck repository |
 | Release targets | Rust target intent: Linux, Windows, macOS amd64, macOS arm64 |
 | Local Go availability on 2026-06-04 | Not installed |
 | Local Rust availability on 2026-06-04 | `rustc 1.94.1`, `cargo 1.94.1` |
 
-Rust conversion status as of June 5, 2026:
+Rust conversion status as of June 8, 2026:
 
 - Pure Rust event decoder, filters, state machine, scalers, and runtime implemented.
 - Rust CLI implemented with legacy-compatible flags and new `--input-file`.
@@ -65,6 +71,8 @@ Rust conversion status as of June 5, 2026:
 - Live Linux Wayland/Hyprland path was tested on June 5, 2026 with a real tablet. `hyprctl monitors -j` detected a 1920x1200 monitor at scale 1.50 as 1280x800 logical pixels. Relative uinput motion now emits small frames; the user reported scaling felt much better after the change.
 - `--host-driver=auto` resolves to uinput only on Linux Wayland and Enigo elsewhere. The Linux-only `evdev` dependency and uinput code are `cfg(target_os = "linux")`.
 - `uinput-tablet` exists as an experimental absolute virtual tablet backend but did not work reliably in Hyprland testing; keep relative `uinput` as Wayland default.
+- Windows application icon work landed on June 8, 2026. `build.rs` uses `winresource` to embed `remouseable-icon.ico` for Windows targets. The ICO was generated from the root `remouseable-icon.png` and contains 16, 32, 48, 64, 128, and 256 px entries.
+- The embedded icon is used by Explorer, shortcuts, and the taskbar when `remouseable.exe` owns its own console window. If launched inside Windows Terminal, PowerShell, or another existing terminal host, the taskbar button belongs to that host and shows the host icon.
 
 Repository had no uncommitted changes when initially assessed on June 4, 2026. Recheck with `git status --short` before work.
 
@@ -265,6 +273,9 @@ Vendored native surface is much larger than actual used feature set.
 | `src/ssh.rs` | Rust live SSH source, authentication, host-key checks |
 | `src/main.rs` | Rust CLI and application assembly |
 | `src/driver.rs` | Rust native host drivers: Enigo, Linux uinput, Hyprland display detection, relative motion chunking |
+| `build.rs` | Embeds Windows executable resources, including the application icon |
+| `remouseable-icon.png` | Source application icon image |
+| `remouseable-icon.ico` | Generated Windows ICO consumed by `build.rs` |
 
 ## Testing
 
@@ -320,27 +331,40 @@ not have that target installed. The failure was `can't find crate for core`, not
 a code error. Before claiming Windows release readiness, install the Windows Rust
 target and run a real check/build on Windows or in CI.
 
-On the inspected Windows host, Ring-backed `russh` requires a complete MSVC
-BuildTools environment. Loading the `14.52.36328` VC include/lib paths and
-Windows SDK `10.0.26100.0` allowed all checks to pass. Keep `Cargo.lock`
-committed: `russh 0.61.1` currently depends on RustCrypto prereleases, and a
-fresh unconstrained resolution can select incompatible `primefield` versions.
+On the inspected Windows host, Ring-backed `russh` and `ring` require a complete
+MSVC BuildTools environment. A June 8, 2026 shell failed before full validation:
+`cargo check` could not link `msvcrt.lib`, and a help-command build attempt
+could not find `vcruntime.h`. Treat these as local Visual Studio environment
+issues, not application-code failures. Build from a configured Developer
+PowerShell/Command Prompt or ensure `INCLUDE` and `LIB` include the VC tools and
+Windows SDK paths.
+
+Keep `Cargo.lock` committed: `russh 0.61.1` currently depends on RustCrypto
+prereleases, and a fresh unconstrained resolution can select incompatible
+`primefield` versions. The icon work added `winresource` and its lockfile
+dependencies.
 
 ## Build and Release
 
-Linux dependencies include:
-
-```text
-gcc libc6-dev libx11-dev xorg-dev libxtst-dev
-```
-
-Windows builds cross-compile from Linux using MinGW:
+Rust release build:
 
 ```shell
-CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows go build -o .build/windows.exe main.go
+cargo build --release
 ```
 
-macOS builds run on GitHub-hosted macOS runners using latest stable Xcode.
+Linux native dependencies include X11/display development headers for Enigo and
+display detection, plus `/dev/uinput` access for Wayland:
+
+```text
+build-essential pkg-config libx11-dev libxcb1-dev libxrandr-dev libxi-dev libxtst-dev
+```
+
+Windows native builds use the MSVC Rust toolchain and Visual Studio Build Tools.
+The Windows executable resource is produced by `build.rs` through `winresource`.
+
+The legacy Go build and release workflows still exist in `.github/workflows/`;
+do not assume they produce current Rust release binaries until the workflows are
+updated.
 
 ## Known Defects and Security Risks
 
@@ -419,6 +443,7 @@ macOS builds run on GitHub-hosted macOS runners using latest stable Xcode.
 - [ ] All three orientations match Go behavior.
 - [ ] Debug event output remains useful.
 - [ ] Windows build and smoke test pass.
+- [x] Windows executable icon embedded for Explorer, shortcut, and direct taskbar launches.
 - [ ] macOS Intel and ARM builds pass; macOS smoke test passes.
 - [ ] Linux X11 build and smoke test pass.
 - [ ] Linux Wayland/Hyprland uinput smoke test passes for hover, press, drag, release, and full-screen scaling.

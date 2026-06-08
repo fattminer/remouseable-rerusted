@@ -9,8 +9,8 @@ tags:
   - roadmap
 status: in-progress
 language: Rust
-repository: /home/mfiner/Documents/GitHub/remouseable-rerusted
-updated: 2026-06-05
+repository: "C:\\Users\\mfiner\\GIT\\remouseable"
+updated: 2026-06-08
 priority: high
 ---
 
@@ -51,6 +51,7 @@ Likely reliable parity effort: **2–4 weeks**, including real-device and cross-
 | Mouse injection | `enigo` initially |
 | Display enumeration | `display-info` |
 | Linux Wayland input | `evdev`/uinput, Linux target only |
+| Windows executable resources | `winresource` |
 | Errors | `thiserror`, optionally `anyhow` at CLI boundary |
 | Logging | `tracing`, `tracing-subscriber` |
 | Tests | Built-in Rust tests with small fake trait implementations |
@@ -247,9 +248,24 @@ Linux Wayland pass completed June 5, 2026:
 - [ ] Add Rust GitHub Actions build/test jobs.
 - [ ] Produce release binaries for all existing targets.
 - [ ] Document permissions and migration behavior.
+- [x] Embed Windows executable application icon.
 - [ ] Run captured-stream and real-device acceptance tests.
 - [ ] Keep Go release available during transition.
 - [ ] Remove Go/CGO implementation only after stable Rust release.
+
+Packaging progress as of June 8, 2026:
+
+- `remouseable-icon.png` is the root source icon asset.
+- `remouseable-icon.ico` is a generated multi-size Windows icon containing 16,
+  32, 48, 64, 128, and 256 px entries.
+- `build.rs` embeds the ICO into Windows targets using `winresource`.
+- The embedded icon should appear in Explorer, shortcuts, and the taskbar when
+  `remouseable.exe` owns its own console window.
+- When launched inside Windows Terminal, PowerShell, or another existing
+  terminal host, the taskbar button belongs to the terminal host and shows the
+  terminal icon instead.
+- This is packaging/resource progress only; Rust release binaries and GitHub
+  release workflow cutover remain incomplete.
 
 ## Key Risks
 
@@ -276,6 +292,9 @@ manual override guidance when compositor detection is wrong.
 ### Dependency Risk
 
 Input-injection and SSH crates are security-sensitive dependencies. Pin versions, review release changes, and use `cargo audit`.
+
+The Windows resource path now depends on `winresource`; keep the lockfile in
+sync so release builders get the same resource compiler behavior.
 
 ## Improvements to Include
 
@@ -308,6 +327,7 @@ Input-injection and SSH crates are security-sensitive dependencies. Pin versions
 | 2026-06-05 | Add Linux Wayland uinput backend | Enigo/X11-style injection is unreliable on Wayland; uinput virtual mouse works with Hyprland |
 | 2026-06-05 | Keep uinput Linux-only and auto-select Enigo elsewhere | Preserves Windows/macOS compatibility and avoids Linux-only dependency leakage |
 | 2026-06-05 | Chunk relative uinput movement | Large relative deltas can be limited by compositor/libinput behavior and fail to reach full screen |
+| 2026-06-08 | Embed Windows application icon with `winresource` | Explorer, shortcuts, and direct-console taskbar launches should show the project icon |
 
 ## Agent Handoff Prompt
 

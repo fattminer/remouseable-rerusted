@@ -387,6 +387,23 @@ The `evdev` dependency and all uinput code are guarded with
 targets, forcing `--host-driver=uinput` or `--host-driver=uinput-tablet` returns a
 Linux-only error.
 
+### Rust Windows Application Icon
+
+The Rust Windows executable embeds an application icon during the Cargo build.
+The source image is `remouseable-icon.png` at the repository root. The generated
+Windows icon file is `remouseable-icon.ico`, which contains 16, 32, 48, 64, 128,
+and 256 px entries.
+
+`build.rs` invokes the `winresource` crate when `CARGO_CFG_TARGET_OS` is
+`windows` and sets `remouseable-icon.ico` as the executable icon resource.
+This affects the icon shown by Explorer, shortcuts, and the taskbar when
+`remouseable.exe` owns its own console window.
+
+If the program is launched inside Windows Terminal, PowerShell, or another
+existing terminal host, the taskbar button belongs to that terminal host and
+uses the terminal host's icon. That is Windows console-host behavior, not a
+missing executable resource.
+
 ## The Runtime
 
 The runtime component is the logic that brings together the state machine,
