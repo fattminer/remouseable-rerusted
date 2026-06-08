@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-only"
 description = "Use a reMarkable tablet as a mouse"
-repository = "https://github.com/kevinconway/remouseable"
+repository = "https://github.com/fattminer/remouseable-rerusted"
 
 [dependencies]
 bytes = "1"
@@ -17,6 +17,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.13.2"
+
+[build-dependencies]
+winresource = "0.1"
 
 [lib]
 path = "src/lib.rs"

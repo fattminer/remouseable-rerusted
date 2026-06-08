@@ -113,6 +113,12 @@ If you see an error like `Cannot open include file: 'vcruntime.h'`, the MSVC
 environment is incomplete or the shell was not launched from a configured
 Developer PowerShell / Developer Command Prompt.
 
+The Windows build embeds `remouseable-icon.ico` into the executable. That icon is
+used by Explorer, shortcuts, and the taskbar when the executable is launched as
+its own console window. If `remouseable` is run inside Windows Terminal,
+PowerShell, or another existing terminal host, the taskbar button belongs to that
+terminal host and uses the terminal's icon instead.
+
 Recommended setup:
 
 ```powershell
