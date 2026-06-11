@@ -9,8 +9,8 @@ component ReadableLineEdit inherits Rectangle {
 
     height: 36px;
     min-width: 160px;
-    background: #ffffff;
-    border-color: input.has-focus ? #2563eb : #94a3b8;
+    background: #18181b;
+    border-color: input.has-focus ? #d4d4d8 : #52525b;
     border-width: 1px;
     border-radius: 4px;
     clip: true;
@@ -23,7 +23,7 @@ component ReadableLineEdit inherits Rectangle {
         width: parent.width - 20px;
         height: parent.height;
         text: root.text == "" ? root.placeholder-text : "";
-        color: #64748b;
+        color: #71717a;
         vertical-alignment: center;
     }
 
@@ -36,22 +36,22 @@ component ReadableLineEdit inherits Rectangle {
         height: parent.height;
         text <=> root.text;
         input-type: root.input-type;
-        color: #111827;
-        selection-foreground-color: #000000;
-        selection-background-color: #2563eb;
+        color: #f4f4f5;
+        selection-foreground-color: #09090b;
+        selection-background-color: #d4d4d8;
         vertical-alignment: center;
     }
 }
 
 // Small hand-built combobox for tablet orientation. The standard ComboBox keeps
-// selected text color theme-owned, so this draws selected text explicitly black.
+// selected text color theme-owned, so this draws selected text explicitly.
 component OrientationCombo inherits Rectangle {
     in-out property <string> value;
 
     height: 36px;
     min-width: 160px;
-    background: #ffffff;
-    border-color: #94a3b8;
+    background: #18181b;
+    border-color: #52525b;
     border-width: 1px;
     border-radius: 4px;
 
@@ -68,7 +68,7 @@ component OrientationCombo inherits Rectangle {
         width: parent.width - 32px;
         height: parent.height;
         text: root.value;
-        color: #000000;
+        color: #f4f4f5;
         vertical-alignment: center;
     }
 
@@ -78,7 +78,7 @@ component OrientationCombo inherits Rectangle {
         width: 16px;
         height: parent.height;
         text: "v";
-        color: #000000;
+        color: #a1a1aa;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -91,8 +91,8 @@ component OrientationCombo inherits Rectangle {
         Rectangle {
             width: parent.width;
             height: parent.height;
-            background: #ffffff;
-            border-color: #94a3b8;
+            background: #18181b;
+            border-color: #52525b;
             border-width: 1px;
             border-radius: 4px;
             clip: true;
@@ -103,23 +103,23 @@ component OrientationCombo inherits Rectangle {
 
                 Rectangle {
                     height: 36px;
-                    background: root.value == "right" ? #dbeafe : #ffffff;
+                    background: root.value == "right" ? #3f3f46 : #18181b;
                     TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "right"; popup.close(); } }
-                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "right"; color: #000000; vertical-alignment: center; }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "right"; color: #f4f4f5; vertical-alignment: center; }
                 }
-                Rectangle { height: 1px; background: #e5e7eb; }
+                Rectangle { height: 1px; background: #27272a; }
                 Rectangle {
                     height: 35px;
-                    background: root.value == "left" ? #dbeafe : #ffffff;
+                    background: root.value == "left" ? #3f3f46 : #18181b;
                     TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "left"; popup.close(); } }
-                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "left"; color: #000000; vertical-alignment: center; }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "left"; color: #f4f4f5; vertical-alignment: center; }
                 }
-                Rectangle { height: 1px; background: #e5e7eb; }
+                Rectangle { height: 1px; background: #27272a; }
                 Rectangle {
                     height: 35px;
-                    background: root.value == "vertical" ? #dbeafe : #ffffff;
+                    background: root.value == "vertical" ? #3f3f46 : #18181b;
                     TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "vertical"; popup.close(); } }
-                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "vertical"; color: #000000; vertical-alignment: center; }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "vertical"; color: #f4f4f5; vertical-alignment: center; }
                 }
             }
         }
@@ -132,8 +132,8 @@ component DriverCombo inherits Rectangle {
 
     height: 36px;
     min-width: 160px;
-    background: #ffffff;
-    border-color: #94a3b8;
+    background: #18181b;
+    border-color: #52525b;
     border-width: 1px;
     border-radius: 4px;
 
@@ -149,7 +149,7 @@ component DriverCombo inherits Rectangle {
         width: parent.width - 32px;
         height: parent.height;
         text: root.value;
-        color: #000000;
+        color: #f4f4f5;
         vertical-alignment: center;
     }
 
@@ -159,7 +159,7 @@ component DriverCombo inherits Rectangle {
         width: 16px;
         height: parent.height;
         text: "v";
-        color: #000000;
+        color: #a1a1aa;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
@@ -171,8 +171,8 @@ component DriverCombo inherits Rectangle {
         Rectangle {
             width: parent.width;
             height: parent.height;
-            background: #ffffff;
-            border-color: #94a3b8;
+            background: #18181b;
+            border-color: #52525b;
             border-width: 1px;
             border-radius: 4px;
             clip: true;
@@ -183,30 +183,30 @@ component DriverCombo inherits Rectangle {
 
                 Rectangle {
                     height: 36px;
-                    background: root.value == "auto" ? #dbeafe : #ffffff;
+                    background: root.value == "auto" ? #3f3f46 : #18181b;
                     TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "auto"; popup.close(); } }
-                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "auto"; color: #000000; vertical-alignment: center; }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "auto"; color: #f4f4f5; vertical-alignment: center; }
                 }
-                Rectangle { height: 1px; background: #e5e7eb; }
+                Rectangle { height: 1px; background: #27272a; }
                 Rectangle {
                     height: 35px;
-                    background: root.value == "enigo" ? #dbeafe : #ffffff;
+                    background: root.value == "enigo" ? #3f3f46 : #18181b;
                     TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "enigo"; popup.close(); } }
-                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "enigo"; color: #000000; vertical-alignment: center; }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "enigo"; color: #f4f4f5; vertical-alignment: center; }
                 }
-                Rectangle { height: 1px; background: #e5e7eb; }
+                Rectangle { height: 1px; background: #27272a; }
                 Rectangle {
                     height: 35px;
-                    background: root.value == "uinput" ? #dbeafe : #ffffff;
+                    background: root.value == "uinput" ? #3f3f46 : #18181b;
                     TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "uinput"; popup.close(); } }
-                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "uinput"; color: #000000; vertical-alignment: center; }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "uinput"; color: #f4f4f5; vertical-alignment: center; }
                 }
-                Rectangle { height: 1px; background: #e5e7eb; }
+                Rectangle { height: 1px; background: #27272a; }
                 Rectangle {
                     height: 35px;
-                    background: root.value == "uinput-tablet" ? #dbeafe : #ffffff;
+                    background: root.value == "uinput-tablet" ? #3f3f46 : #18181b;
                     TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "uinput-tablet"; popup.close(); } }
-                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "uinput-tablet"; color: #000000; vertical-alignment: center; }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "uinput-tablet"; color: #f4f4f5; vertical-alignment: center; }
                 }
             }
         }
@@ -235,7 +235,7 @@ export component RemouseableWindow inherits Window {
     callback start-requested(string, string, string, string, string, string, string, bool);
     callback stop-requested();
 
-    background: #f8fafc;
+    background: #09090b;
 
     VerticalBox {
         padding: 20px;
@@ -245,56 +245,56 @@ export component RemouseableWindow inherits Window {
             text: "reMouseable";
             font-size: 28px;
             font-weight: 700;
-            color: #111827;
+            color: #fafafa;
         }
 
         Text {
             text: "Connect a reMarkable tablet and stream stylus events to the host mouse.";
-            color: #4b5563;
+            color: #a1a1aa;
             wrap: word-wrap;
         }
 
         Rectangle {
             height: 1px;
-            background: #d1d5db;
+            background: #3f3f46;
         }
 
-        Text { text: "Connection"; font-weight: 700; color: #111827; }
+        Text { text: "Connection"; font-weight: 700; color: #f4f4f5; }
 
-        Text { text: "SSH address"; color: #374151; }
+        Text { text: "SSH address"; color: #d4d4d8; }
         ReadableLineEdit { text <=> root.ssh-ip; placeholder-text: "10.11.99.1:22"; }
 
-        Text { text: "SSH user"; color: #374151; }
+        Text { text: "SSH user"; color: #d4d4d8; }
         ReadableLineEdit { text <=> root.ssh-user; placeholder-text: "root"; }
 
-        Text { text: "SSH password"; color: #374151; }
+        Text { text: "SSH password"; color: #d4d4d8; }
         ReadableLineEdit {
             text <=> root.ssh-password;
             placeholder-text: "Tablet password";
             input-type: InputType.password;
         }
 
-        Text { text: "Event file"; color: #374151; }
+        Text { text: "Event file"; color: #d4d4d8; }
         ReadableLineEdit { text <=> root.event-file; placeholder-text: "/dev/input/event1"; }
 
-        Text { text: "Behavior"; font-weight: 700; color: #111827; }
+        Text { text: "Behavior"; font-weight: 700; color: #f4f4f5; }
 
-        // Start/Stop are custom buttons so label color stays black.
+        // Start/Stop are custom buttons so label colors stay theme-controlled.
         HorizontalBox {
             spacing: 12px;
 
             VerticalBox {
-                Text { text: "Orientation"; color: #374151; }
+                Text { text: "Orientation"; color: #d4d4d8; }
                 OrientationCombo { value <=> root.orientation; }
             }
 
             VerticalBox {
-                Text { text: "Host driver"; color: #374151; }
+                Text { text: "Host driver"; color: #d4d4d8; }
                 DriverCombo { value <=> root.host-driver; }
             }
         }
 
-        Text { text: "Pressure threshold"; color: #374151; }
+        Text { text: "Pressure threshold"; color: #d4d4d8; }
         ReadableLineEdit { text <=> root.pressure-threshold; placeholder-text: "1000"; }
 
         // Switch {
@@ -304,7 +304,7 @@ export component RemouseableWindow inherits Window {
 
         Rectangle {
             height: 1px;
-            background: #d1d5db;
+            background: #3f3f46;
         }
 
         HorizontalBox {
@@ -313,8 +313,8 @@ export component RemouseableWindow inherits Window {
             Rectangle {
                 width: 96px;
                 height: 36px;
-                background: root.running ? #e5e7eb : start-touch.pressed ? #d1d5db : #ffffff;
-                border-color: #111827;
+                background: root.running ? #27272a : start-touch.pressed ? #52525b : #e4e4e7;
+                border-color: #71717a;
                 border-width: 1px;
                 border-radius: 4px;
 
@@ -340,7 +340,7 @@ export component RemouseableWindow inherits Window {
                     width: parent.width;
                     height: parent.height;
                     text: root.running ? "Running" : "Start";
-                    color: #000000;
+                    color: root.running ? #71717a : #09090b;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -349,8 +349,8 @@ export component RemouseableWindow inherits Window {
             Rectangle {
                 width: 96px;
                 height: 36px;
-                background: root.running ? stop-touch.pressed ? #d1d5db : #ffffff : #e5e7eb;
-                border-color: #111827;
+                background: root.running ? stop-touch.pressed ? #52525b : #e4e4e7 : #27272a;
+                border-color: #71717a;
                 border-width: 1px;
                 border-radius: 4px;
 
@@ -367,7 +367,7 @@ export component RemouseableWindow inherits Window {
                     width: parent.width;
                     height: parent.height;
                     text: "Stop";
-                    color: #000000;
+                    color: root.running ? #09090b : #71717a;
                     horizontal-alignment: center;
                     vertical-alignment: center;
                 }
@@ -376,7 +376,7 @@ export component RemouseableWindow inherits Window {
 
         Text {
             text: root.status-text;
-            color: root.running ? #047857 : #374151;
+            color: root.running ? #fafafa : #a1a1aa;
             wrap: word-wrap;
         }
     }
