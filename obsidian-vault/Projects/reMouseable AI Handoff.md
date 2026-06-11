@@ -28,12 +28,12 @@ priority: high
 reMouseable turns a reMarkable tablet stylus into a host-computer mouse. The
 Rust application connects to the tablet over SSH, reads a Linux
 `/dev/input/event*` stream, decodes fixed-width Evdev records, translates stylus
-position and pressure into mouse actions, scales tablet coordinates to the host
-display, then injects native host input.
+position, pressure, and tilt into host actions, scales tablet coordinates to the
+host display, then injects native host input.
 
 Current targets:
 
-- Windows through Enigo.
+- Windows through synthetic pen injection, with Enigo fallback.
 - macOS Intel and Apple Silicon through Enigo.
 - Linux X11 through Enigo.
 - Linux Wayland through a relative `uinput` virtual mouse.
@@ -56,7 +56,7 @@ explaining compatibility decisions, but the current source tree is Rust.
 | Main language | Rust 2024 edition |
 | UI | Slint |
 | SSH | `russh` with Ring backend |
-| Host input | Enigo; Linux `uinput` |
+| Host input | Windows synthetic pen; Enigo; Linux `uinput` |
 | License | GPL-3.0-only |
 | Deterministic fixture | `fixtures/representative-events.hex` |
 | Integration test | `tests/representative_stream.rs` |
@@ -89,6 +89,7 @@ not necessarily a project code defect.
 - Linux Wayland relative `uinput` backend.
 - Hyprland focused-monitor logical-size detection.
 - Experimental Linux absolute `uinput-tablet` backend.
+- Windows synthetic pen backend with continuous pressure and X/Y tilt.
 
 Validated against real hardware:
 
@@ -103,8 +104,7 @@ Not yet broadly validated:
 - Linux X11 real-device behavior.
 - Wayland compositors beyond Hyprland.
 - Multi-monitor selection and coordinate offsets.
-- Windows pen pressure/tilt injection. Current Windows output is mouse input;
-  pressure is only a click threshold and tilt is not decoded.
+- Windows synthetic pen behavior in a Windows Ink-aware drawing application.
 
 ## User-Facing Behavior
 
@@ -156,9 +156,11 @@ Important flags:
 | `--event-file` | Remote Evdev path; common default `/dev/input/event1` |
 | `--orientation` | `right`, `left`, or `vertical` |
 | `--pressure-threshold` | Binary contact threshold; default `1000` |
+| `--tablet-pressure-max` | Pressure calibration; verified default `4095` |
+| `--tablet-tilt-max` | Tilt calibration; verified default `9000` |
 | `--screen-width`, `--screen-height` | Override display dimensions |
 | `--debug-events` | Print selected raw events |
-| `--host-driver` | `auto`, `enigo`, `uinput`, or `uinput-tablet` |
+| `--host-driver` | `auto`, `enigo`, `uinput`, `uinput-tablet`, or `windows-pen` |
 
 ## Data Flow
 
@@ -205,7 +207,12 @@ i32 value
 All fields are little-endian. Keep this explicit parser: tablet timestamps use
 32-bit fields, while host-native `input_event` layouts may differ.
 
-Current named absolute codes are `ABS_X`, `ABS_Y`, and `ABS_PRESSURE`.
+Named pen codes include `ABS_X`, `ABS_Y`, `ABS_PRESSURE`, `ABS_TILT_X`, and
+`ABS_TILT_Y`; `EV_SYN`/`SYN_REPORT` delimits complete pen frames.
+
+Real `/dev/input/event1` capability capture on June 11, 2026 confirmed pressure
+`0..4095`, tilt X/Y `-9000..9000`, X `0..20966`, and Y `0..15725`. No rotation
+axis was exposed, so rotation must remain omitted rather than inferred.
 
 ### State Machine
 
@@ -233,6 +240,7 @@ release operations through the `HostDriver` trait.
 `src/driver.rs` contains:
 
 - Enigo absolute mouse driver for Windows, macOS, and Linux X11.
+- Windows synthetic `PT_PEN` driver on Windows 10 version 1809 or newer.
 - Linux relative `uinput` mouse driver used by Wayland `auto` mode.
 - Experimental Linux absolute `uinput-tablet` driver.
 
@@ -282,8 +290,9 @@ can move or click the operator's real cursor; warn before manual injection tests
    but monitor selection and offsets are not general.
 5. **Platform acceptance is incomplete.** macOS, Linux X11, and additional
    Wayland compositors need real-device smoke tests.
-6. **Windows receives mouse input, not pen input.** Continuous pressure and tilt
-   require a Windows synthetic pen driver and richer event/frame domain model.
+6. **Windows pen acceptance remains manual.** Build and validate hover, contact,
+   pressure, tilt, lift, shutdown release, and Enigo fallback in a Windows
+   Ink-aware application.
 7. **Dependency security matters.** Keep `Cargo.lock`, review `russh` and input
    crate updates, and run `cargo audit` when available.
 

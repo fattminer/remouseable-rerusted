@@ -7,7 +7,7 @@
 use crate::{Args, HostDriverArg, OrientationArg, config};
 use remouseable::{
     HostDriver, NativeDriver,
-    app::process_events_with_driver,
+    app::{process_events_with_driver, process_pen_events_with_driver},
     ssh::{SshOptions, open_event_stream_with_cancel},
 };
 use slint::{ComponentHandle, SharedString};
@@ -169,11 +169,13 @@ fn run_live_from_ui(
         cancel,
     )?;
 
-    process_events_with_driver(
-        input,
-        driver,
-        config(&args, detected_width, detected_height),
-    )?;
+    let config = config(&args, detected_width, detected_height);
+    if driver.supports_pen() {
+        let screen_origin = driver.screen_origin();
+        process_pen_events_with_driver(input, driver, config, screen_origin)?;
+    } else {
+        process_events_with_driver(input, driver, config)?;
+    }
     Ok(())
 }
 
@@ -206,9 +208,10 @@ fn parse_host_driver(value: &str) -> io::Result<HostDriverArg> {
         "enigo" => Ok(HostDriverArg::Enigo),
         "uinput" => Ok(HostDriverArg::Uinput),
         "uinput-tablet" => Ok(HostDriverArg::UinputTablet),
+        "windows-pen" => Ok(HostDriverArg::WindowsPen),
         _ => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "host driver must be auto, enigo, uinput, or uinput-tablet",
+            "host driver must be auto, enigo, uinput, uinput-tablet, or windows-pen",
         )),
     }
 }
@@ -227,6 +230,7 @@ const fn host_driver_name(driver: HostDriverArg) -> &'static str {
         HostDriverArg::Enigo => "enigo",
         HostDriverArg::Uinput => "uinput",
         HostDriverArg::UinputTablet => "uinput-tablet",
+        HostDriverArg::WindowsPen => "windows-pen",
     }
 }
 

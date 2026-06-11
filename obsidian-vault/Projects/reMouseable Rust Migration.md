@@ -45,15 +45,17 @@ is Rust-only.
 Cargo.toml
 src/
   app.rs       shared event-processing pipeline
-  driver.rs    Enigo and Linux uinput host drivers
+  driver.rs    host driver selection, Enigo, and Linux uinput
   event.rs     explicit 16-byte Evdev decoder
   lib.rs       public module surface and constants
   main.rs      CLI and GUI/terminal selection
+  pen.rs       framed pressure/tilt domain and runtime
   runtime.rs   scaled state-change dispatch
   scale.rs     orientation mapping
   ssh.rs       live russh event source
   state.rs     pressure and position state machine
   ui.rs        Slint frontend controller
+  windows_pen.rs Windows synthetic pen driver
 ui/
   remouseable.slint
 tests/
@@ -131,7 +133,7 @@ cryptographic dependency resolution is sensitive.
 - [ ] Test Linux X11 with real tablet.
 - [ ] Test additional Wayland compositors.
 - [ ] Add explicit monitor selection and offsets.
-- [ ] Add Windows synthetic pen pressure/tilt backend if desired.
+- [x] Add Windows synthetic pen pressure/tilt backend.
 
 Windows validation on June 4, 2026 processed live `/dev/input/event1` stylus
 events through SSH, parsing, scaling, and Enigo without runtime errors.
@@ -187,14 +189,15 @@ open.
 
 ### Windows Pen Semantics
 
-Current Windows backend emits mouse events. Pressure only controls binary
-contact and tilt is not decoded. Native pen support requires:
+Windows `auto` now attempts a synthetic `PT_PEN` device, preserving continuous
+pressure and X/Y tilt from complete `SYN_REPORT` frames. It warns and falls back
+to Enigo if device creation fails; explicit `windows-pen` fails instead. Native
+mode requires Windows 10 version 1809 or newer.
 
-- Decode `ABS_TILT_X`, `ABS_TILT_Y`, and frame boundaries.
-- Preserve continuous pressure in domain state.
-- Add a Windows `CreateSyntheticPointerDevice(PT_PEN, ...)` driver.
-- Inject `POINTER_PEN_INFO` pressure and tilt values.
-- Retain Enigo as compatibility fallback.
+Real `/dev/input/event1` capture on June 11, 2026 verified pressure `0..4095`,
+tilt X/Y `-9000..9000`, X `0..20966`, and Y `0..15725`. The hardware exposed no
+rotation axis, so rotation is intentionally omitted rather than synthesized.
+Windows Ink application validation remains pending.
 
 ### Dependency and Toolchain Risk
 
@@ -218,6 +221,8 @@ updates, run `cargo audit`, and validate Windows with a complete MSVC/SDK setup.
 | 2026-06-05 | Chunk relative `uinput` movement | Avoid compositor/libinput large-delta limitations |
 | 2026-06-11 | Treat Rust as source of truth | Go implementation is absent; migration history remains documentation only |
 | 2026-06-11 | Keep handoff and migration notes | They preserve hardware findings, risks, decisions, and acceptance context |
+| 2026-06-11 | Omit barrel rotation | Captured hardware exposes pressure and tilt but no genuine rotation axis |
+| 2026-06-11 | Prefer Windows synthetic pen in auto mode | Preserve pressure and tilt while retaining Enigo compatibility fallback |
 
 ## Validation
 

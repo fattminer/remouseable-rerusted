@@ -4,7 +4,9 @@
 // it under the terms of the GNU General Public License version 3 as published
 // by the Free Software Foundation.
 
-use crate::{HostDriver, MouseButton};
+#[cfg(target_os = "windows")]
+use crate::windows_pen::WindowsPenDriver;
+use crate::{HostDriver, MouseButton, PenDriver, PenInput};
 use display_info::DisplayInfo;
 use enigo::{Button, Coordinate, Direction, Enigo, Mouse, Settings};
 use std::{io, process::Command};
@@ -24,14 +26,19 @@ pub enum DriverKind {
     Enigo,
     Uinput,
     UinputTablet,
+    WindowsPen,
 }
 
 pub struct NativeDriver {
     inner: NativeDriverInner,
+    screen_origin: (i32, i32),
+    screen_size: (i32, i32),
 }
 
 enum NativeDriverInner {
     Enigo(Box<EnigoDriver>),
+    #[cfg(target_os = "windows")]
+    WindowsPen(WindowsPenDriver),
     #[cfg(target_os = "linux")]
     Uinput(UinputDriver),
     #[cfg(target_os = "linux")]
@@ -53,7 +60,9 @@ impl NativeDriver {
     ///
     /// Returns an error when the display or selected input backend cannot be opened.
     pub fn new(kind: DriverKind) -> io::Result<Self> {
-        let (screen_width, screen_height) = primary_display_size()?;
+        let display = primary_display()?;
+        let screen_width = display.width;
+        let screen_height = display.height;
         let inner = match resolve_driver_kind(kind) {
             DriverKind::Auto | DriverKind::Enigo => EnigoDriver::new(screen_width, screen_height)
                 .map(Box::new)
@@ -85,17 +94,72 @@ impl NativeDriver {
                     ))
                 }
             }
+            DriverKind::WindowsPen => {
+                #[cfg(target_os = "windows")]
+                {
+                    match WindowsPenDriver::new() {
+                        Ok(driver) => Ok(NativeDriverInner::WindowsPen(driver)),
+                        Err(error) if kind == DriverKind::Auto => {
+                            eprintln!(
+                                "remouseable: warning: Windows pen injection unavailable ({error}); falling back to Enigo mouse input"
+                            );
+                            EnigoDriver::new(screen_width, screen_height)
+                                .map(Box::new)
+                                .map(NativeDriverInner::Enigo)
+                        }
+                        Err(error) => Err(error),
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    Err(io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "windows-pen driver is only available on Windows 10 version 1809 or newer",
+                    ))
+                }
+            }
         }?;
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            screen_origin: (display.x, display.y),
+            screen_size: (screen_width, screen_height),
+        })
+    }
+
+    #[must_use]
+    pub fn supports_pen(&self) -> bool {
+        #[cfg(target_os = "windows")]
+        return matches!(self.inner, NativeDriverInner::WindowsPen(_));
+
+        #[cfg(not(target_os = "windows"))]
+        false
+    }
+
+    #[must_use]
+    pub const fn screen_origin(&self) -> (i32, i32) {
+        self.screen_origin
     }
 }
 
-fn primary_display_size() -> io::Result<(i32, i32)> {
+#[derive(Clone, Copy)]
+struct DisplayMetrics {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+fn primary_display() -> io::Result<DisplayMetrics> {
     if std::env::var("XDG_CURRENT_DESKTOP")
         .is_ok_and(|desktop| desktop.eq_ignore_ascii_case("hyprland"))
         && let Some(size) = hyprland_focused_monitor_size()?
     {
-        return Ok(size);
+        return Ok(DisplayMetrics {
+            x: 0,
+            y: 0,
+            width: size.0,
+            height: size.1,
+        });
     }
 
     let displays = DisplayInfo::all().map_err(io::Error::other)?;
@@ -108,7 +172,12 @@ fn primary_display_size() -> io::Result<(i32, i32)> {
         .map_err(|_| io::Error::other("primary display width exceeds i32"))?;
     let screen_height = i32::try_from(display.height)
         .map_err(|_| io::Error::other("primary display height exceeds i32"))?;
-    Ok((screen_width, screen_height))
+    Ok(DisplayMetrics {
+        x: display.x,
+        y: display.y,
+        width: screen_width,
+        height: screen_height,
+    })
 }
 
 fn hyprland_focused_monitor_size() -> io::Result<Option<(i32, i32)>> {
@@ -175,7 +244,15 @@ fn resolve_driver_kind(kind: DriverKind) -> DriverKind {
         return DriverKind::Uinput;
     }
 
-    DriverKind::Enigo
+    #[cfg(target_os = "windows")]
+    {
+        DriverKind::WindowsPen
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        DriverKind::Enigo
+    }
 }
 
 impl EnigoDriver {
@@ -247,6 +324,8 @@ impl HostDriver for NativeDriver {
     fn screen_size(&self) -> Result<(i32, i32), Self::Error> {
         match &self.inner {
             NativeDriverInner::Enigo(driver) => driver.screen_size(),
+            #[cfg(target_os = "windows")]
+            NativeDriverInner::WindowsPen(_) => Ok(self.screen_size),
             #[cfg(target_os = "linux")]
             NativeDriverInner::Uinput(driver) => driver.screen_size(),
             #[cfg(target_os = "linux")]
@@ -257,6 +336,10 @@ impl HostDriver for NativeDriver {
     fn move_mouse(&mut self, x: i32, y: i32) -> Result<(), Self::Error> {
         match &mut self.inner {
             NativeDriverInner::Enigo(driver) => driver.move_mouse(x, y),
+            #[cfg(target_os = "windows")]
+            NativeDriverInner::WindowsPen(_) => {
+                Err(io::Error::other("Windows pen driver requires pen frames"))
+            }
             #[cfg(target_os = "linux")]
             NativeDriverInner::Uinput(driver) => driver.move_mouse(x, y),
             #[cfg(target_os = "linux")]
@@ -267,6 +350,10 @@ impl HostDriver for NativeDriver {
     fn drag_mouse(&mut self, x: i32, y: i32) -> Result<(), Self::Error> {
         match &mut self.inner {
             NativeDriverInner::Enigo(driver) => driver.drag_mouse(x, y),
+            #[cfg(target_os = "windows")]
+            NativeDriverInner::WindowsPen(_) => {
+                Err(io::Error::other("Windows pen driver requires pen frames"))
+            }
             #[cfg(target_os = "linux")]
             NativeDriverInner::Uinput(driver) => driver.drag_mouse(x, y),
             #[cfg(target_os = "linux")]
@@ -277,6 +364,10 @@ impl HostDriver for NativeDriver {
     fn press(&mut self, button: MouseButton) -> Result<(), Self::Error> {
         match &mut self.inner {
             NativeDriverInner::Enigo(driver) => driver.press(button),
+            #[cfg(target_os = "windows")]
+            NativeDriverInner::WindowsPen(_) => {
+                Err(io::Error::other("Windows pen driver requires pen frames"))
+            }
             #[cfg(target_os = "linux")]
             NativeDriverInner::Uinput(driver) => driver.press(button),
             #[cfg(target_os = "linux")]
@@ -287,10 +378,29 @@ impl HostDriver for NativeDriver {
     fn release(&mut self, button: MouseButton) -> Result<(), Self::Error> {
         match &mut self.inner {
             NativeDriverInner::Enigo(driver) => driver.release(button),
+            #[cfg(target_os = "windows")]
+            NativeDriverInner::WindowsPen(_) => {
+                Err(io::Error::other("Windows pen driver requires pen frames"))
+            }
             #[cfg(target_os = "linux")]
             NativeDriverInner::Uinput(driver) => driver.release(button),
             #[cfg(target_os = "linux")]
             NativeDriverInner::UinputTablet(driver) => driver.release(button),
+        }
+    }
+}
+
+impl PenDriver for NativeDriver {
+    type Error = io::Error;
+
+    fn inject_pen(&mut self, input: PenInput) -> Result<(), Self::Error> {
+        match &mut self.inner {
+            #[cfg(target_os = "windows")]
+            NativeDriverInner::WindowsPen(driver) => driver.inject_pen(input),
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "selected host driver does not support pen frames",
+            )),
         }
     }
 }

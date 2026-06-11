@@ -166,7 +166,7 @@ component DriverCombo inherits Rectangle {
 
     popup := PopupWindow {
         width: root.width;
-        height: 144px;
+        height: 180px;
 
         Rectangle {
             width: parent.width;
@@ -207,6 +207,13 @@ component DriverCombo inherits Rectangle {
                     background: root.value == "uinput-tablet" ? #3f3f46 : #18181b;
                     TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "uinput-tablet"; popup.close(); } }
                     Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "uinput-tablet"; color: #f4f4f5; vertical-alignment: center; }
+                }
+                Rectangle { height: 1px; background: #27272a; }
+                Rectangle {
+                    height: 35px;
+                    background: root.value == "windows-pen" ? #3f3f46 : #18181b;
+                    TouchArea { width: parent.width; height: parent.height; clicked => { root.value = "windows-pen"; popup.close(); } }
+                    Text { x: 10px; width: parent.width - 20px; height: parent.height; text: "windows-pen"; color: #f4f4f5; vertical-alignment: center; }
                 }
             }
         }

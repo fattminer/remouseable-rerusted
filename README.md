@@ -14,7 +14,8 @@ The Rust application supports:
 - reMarkable event streams over SSH.
 - Password and SSH-agent authentication.
 - Optional OpenSSH `known_hosts` verification.
-- Windows and macOS mouse injection through Enigo.
+- Windows synthetic pen injection with continuous pressure and X/Y tilt.
+- Windows Enigo mouse fallback and macOS mouse injection through Enigo.
 - Linux X11 mouse injection through Enigo.
 - Linux Wayland mouse injection through a `uinput` virtual mouse.
 - `right`, `left`, and `vertical` tablet orientations.
@@ -117,11 +118,29 @@ Only absolute, shell-safe remote event paths are accepted.
 `--host-driver=auto` selects:
 
 - `uinput` on Linux Wayland.
-- `enigo` on Windows, macOS, and Linux X11.
+- `windows-pen` on Windows, falling back to `enigo` with a warning when native
+  pen creation is unavailable.
+- `enigo` on macOS and Linux X11.
 
-Available values are `auto`, `enigo`, `uinput`, and `uinput-tablet`.
+Available values are `auto`, `enigo`, `uinput`, `uinput-tablet`, and
+`windows-pen`. Explicit `windows-pen` returns an actionable error instead of
+falling back. It requires Windows 10 version 1809 or newer.
 `uinput-tablet` is experimental and is not the default because absolute-tablet
 behavior was unreliable during Hyprland testing.
+
+The verified reMarkable pen ranges are pressure `0..4095` and tilt
+`-9000..9000` on both axes. Override calibration only for hardware reporting
+different ranges:
+
+```shell
+remouseable --tui --host-driver=windows-pen \
+  --tablet-pressure-max=4095 \
+  --tablet-tilt-max=9000
+```
+
+The tested event device exposes no barrel-rotation axis, so reMouseable does
+not synthesize rotation. Pressure and tilt availability depends on tablet
+firmware and the selected event device.
 
 On Hyprland, reMouseable reads the focused monitor's logical dimensions from
 `hyprctl monitors -j`. Override display detection when necessary:
@@ -159,9 +178,11 @@ options include:
 | `--tui` | Stay in terminal mode instead of opening the GUI |
 | `--input-file <PATH>` | Process a local raw Evdev stream |
 | `--debug-events` | Print selected hardware events |
-| `--host-driver <DRIVER>` | Select `auto`, `enigo`, `uinput`, or `uinput-tablet` |
+| `--host-driver <DRIVER>` | Select `auto`, `enigo`, `uinput`, `uinput-tablet`, or `windows-pen` |
 | `--orientation <VALUE>` | Select `right`, `left`, or `vertical` |
 | `--pressure-threshold <VALUE>` | Set stylus contact threshold; default `1000` |
+| `--tablet-pressure-max <VALUE>` | Raw pressure maximum; verified default `4095` |
+| `--tablet-tilt-max <VALUE>` | Absolute raw tilt maximum; verified default `9000` |
 | `--screen-width <VALUE>` | Override detected host display width |
 | `--screen-height <VALUE>` | Override detected host display height |
 | `--event-file <PATH>` | Select remote event device |
@@ -175,8 +196,9 @@ options include:
 
 ### Windows
 
-The application needs permission to control the mouse. GUI mode hides the
-console window; use `--tui` when troubleshooting.
+Native pen mode requires Windows 10 version 1809 or newer and uses Windows
+synthetic pointer injection. GUI mode hides the console window; use `--tui`
+when troubleshooting or select `enigo` for mouse-compatible fallback behavior.
 
 ### macOS
 
@@ -200,16 +222,18 @@ Core modules:
 | `src/ssh.rs` | SSH authentication, host-key checks, remote event stream |
 | `src/event.rs` | 16-byte Evdev decoding and event filtering |
 | `src/state.rs` | Stylus position and pressure state machine |
+| `src/pen.rs` | SYN_REPORT pen frames, normalization, and pen runtime |
 | `src/scale.rs` | Orientation-aware coordinate scaling |
 | `src/runtime.rs` | State-change dispatch to host drivers |
-| `src/driver.rs` | Enigo and Linux `uinput` mouse backends |
+| `src/driver.rs` | Host backend selection, Enigo, and Linux `uinput` |
+| `src/windows_pen.rs` | Windows synthetic pen packet construction and injection |
 | `src/app.rs` | Shared stream-processing pipeline |
 
 Data flow:
 
 ```text
-tablet event device -> SSH stream -> Evdev decoder -> state machine
-                    -> coordinate scaler -> native host driver -> mouse
+tablet event device -> SSH stream -> Evdev decoder -> mouse or pen frames
+                    -> coordinate scaler -> native host driver -> host input
 ```
 
 Tablet events use a fixed 16-byte little-endian layout with 32-bit timestamp

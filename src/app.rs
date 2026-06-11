@@ -5,7 +5,8 @@
 // by the Free Software Foundation.
 
 use crate::{
-    EvdevStateMachine, HostDriver, LeftPositionScaler, MouseButton, PositionScaler,
+    EvdevPenFrameSource, EvdevStateMachine, HostDriver, LeftPositionScaler, MouseButton,
+    PenCalibration, PenDriver, PenOrientation, PenRuntime, PenRuntimeError, PositionScaler,
     ReaderEventSource, RightPositionScaler, Runtime, RuntimeError, SelectingEventSource,
     VerticalPositionScaler,
     event::{EV_ABS, EventSource, event_code_name, event_type_name},
@@ -31,6 +32,8 @@ pub struct Config {
     pub screen_width: i32,
     pub screen_height: i32,
     pub pressure_threshold: i32,
+    pub tablet_pressure_max: i32,
+    pub tablet_tilt_max: i32,
     pub disable_drag_event: bool,
 }
 
@@ -39,6 +42,7 @@ pub enum AppError {
     Input(io::Error),
     Output(io::Error),
     Runtime(RuntimeError<io::Error>),
+    PenRuntime(PenRuntimeError<io::Error>),
 }
 
 impl fmt::Display for AppError {
@@ -47,6 +51,7 @@ impl fmt::Display for AppError {
             Self::Input(error) => write!(formatter, "input stream failed: {error}"),
             Self::Output(error) => write!(formatter, "output stream failed: {error}"),
             Self::Runtime(error) => error.fmt(formatter),
+            Self::PenRuntime(error) => error.fmt(formatter),
         }
     }
 }
@@ -56,6 +61,17 @@ impl Error for AppError {
         match self {
             Self::Input(error) | Self::Output(error) => Some(error),
             Self::Runtime(error) => Some(error),
+            Self::PenRuntime(error) => Some(error),
+        }
+    }
+}
+
+impl From<Orientation> for PenOrientation {
+    fn from(orientation: Orientation) -> Self {
+        match orientation {
+            Orientation::Right => Self::Right,
+            Orientation::Left => Self::Left,
+            Orientation::Vertical => Self::Vertical,
         }
     }
 }
@@ -216,6 +232,38 @@ pub fn process_events_with_driver<R: Read, D: HostDriver<Error = io::Error>>(
     Ok(())
 }
 
+/// Converts a raw event stream into native pen frames.
+///
+/// # Errors
+///
+/// Returns an error when calibration, input processing, or pen injection fails.
+pub fn process_pen_events_with_driver<R: Read, D: PenDriver<Error = io::Error>>(
+    input: R,
+    driver: D,
+    config: Config,
+    screen_origin: (i32, i32),
+) -> Result<(), AppError> {
+    let reader = ReaderEventSource::new(input);
+    let frames = EvdevPenFrameSource::new(reader, config.pressure_threshold);
+    let scaler = AppScaler::from_config(config);
+    let calibration = PenCalibration {
+        pressure_max: config.tablet_pressure_max,
+        tilt_max: config.tablet_tilt_max,
+        rotation_max: None,
+    };
+    let mut runtime = PenRuntime::new(
+        frames,
+        scaler,
+        driver,
+        config.orientation.into(),
+        calibration,
+        screen_origin,
+    )
+    .map_err(AppError::Input)?;
+    while runtime.step().map_err(AppError::PenRuntime)? {}
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,6 +316,8 @@ mod tests {
                 screen_width: 200,
                 screen_height: 200,
                 pressure_threshold: 1000,
+                tablet_pressure_max: 4095,
+                tablet_tilt_max: 9000,
                 disable_drag_event: false,
             },
         )

@@ -6,8 +6,12 @@
 
 use clap::{Parser, ValueEnum};
 use remouseable::{
-    DEFAULT_TABLET_HEIGHT, DEFAULT_TABLET_WIDTH, DriverKind, HostDriver, NativeDriver,
-    app::{Config, Orientation, debug_events, process_events, process_events_with_driver},
+    DEFAULT_TABLET_HEIGHT, DEFAULT_TABLET_PRESSURE_MAX, DEFAULT_TABLET_TILT_MAX,
+    DEFAULT_TABLET_WIDTH, DriverKind, HostDriver, NativeDriver, PenCalibration,
+    app::{
+        Config, Orientation, debug_events, process_events, process_events_with_driver,
+        process_pen_events_with_driver,
+    },
     ssh::{SshOptions, open_event_stream},
 };
 use std::{
@@ -49,6 +53,7 @@ pub(crate) enum HostDriverArg {
     Enigo,
     Uinput,
     UinputTablet,
+    WindowsPen,
 }
 
 impl From<HostDriverArg> for DriverKind {
@@ -58,6 +63,7 @@ impl From<HostDriverArg> for DriverKind {
             HostDriverArg::Enigo => Self::Enigo,
             HostDriverArg::Uinput => Self::Uinput,
             HostDriverArg::UinputTablet => Self::UinputTablet,
+            HostDriverArg::WindowsPen => Self::WindowsPen,
         }
     }
 }
@@ -92,6 +98,14 @@ pub(crate) struct Args {
     /// Pen pressure value considered contact.
     #[arg(long, default_value_t = 1000)]
     pressure_threshold: i32,
+
+    /// Maximum raw tablet pressure value used for Windows pen normalization.
+    #[arg(long, default_value_t = DEFAULT_TABLET_PRESSURE_MAX)]
+    tablet_pressure_max: i32,
+
+    /// Maximum absolute tablet tilt value used for Windows pen normalization.
+    #[arg(long, default_value_t = DEFAULT_TABLET_TILT_MAX)]
+    tablet_tilt_max: i32,
 
     /// Host screen height.
     #[arg(long)]
@@ -135,6 +149,13 @@ pub(crate) struct Args {
 }
 
 fn run(args: &Args) -> Result<(), Box<dyn Error>> {
+    PenCalibration {
+        pressure_max: args.tablet_pressure_max,
+        tilt_max: args.tablet_tilt_max,
+        rotation_max: None,
+    }
+    .validate()?;
+
     // UI is the default launch mode. `--tui` intentionally preserves terminal
     // prompts, stdout JSON output, and visible console.
     if !args.tui {
@@ -178,7 +199,13 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     if is_live {
         let driver = NativeDriver::new(args.host_driver.into())?;
         let (detected_width, detected_height) = driver.screen_size()?;
-        process_events_with_driver(input, driver, config(args, detected_width, detected_height))?;
+        let config = config(args, detected_width, detected_height);
+        if driver.supports_pen() {
+            let screen_origin = driver.screen_origin();
+            process_pen_events_with_driver(input, driver, config, screen_origin)?;
+        } else {
+            process_events_with_driver(input, driver, config)?;
+        }
     } else {
         process_events(input, &mut output, config(args, 1920, 1080))?;
     }
@@ -236,6 +263,8 @@ pub(crate) fn config(args: &Args, default_width: i32, default_height: i32) -> Co
         screen_width: args.screen_width.unwrap_or(default_width),
         screen_height: args.screen_height.unwrap_or(default_height),
         pressure_threshold: args.pressure_threshold,
+        tablet_pressure_max: args.tablet_pressure_max,
+        tablet_tilt_max: args.tablet_tilt_max,
         disable_drag_event: args.disable_drag_event,
     }
 }
@@ -363,6 +392,21 @@ mod tests {
         let args = Args::try_parse_from(["remouseable", "--tui"]).unwrap();
 
         assert!(args.tui);
+    }
+
+    #[test]
+    fn parses_windows_pen_calibration() {
+        let args = Args::try_parse_from([
+            "remouseable",
+            "--host-driver=windows-pen",
+            "--tablet-pressure-max=2047",
+            "--tablet-tilt-max=4500",
+        ])
+        .unwrap();
+
+        assert!(matches!(args.host_driver, HostDriverArg::WindowsPen));
+        assert_eq!(args.tablet_pressure_max, 2047);
+        assert_eq!(args.tablet_tilt_max, 4500);
     }
 
     #[test]
