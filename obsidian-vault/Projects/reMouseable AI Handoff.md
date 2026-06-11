@@ -7,79 +7,132 @@ tags:
   - project/remouseable
   - handoff
   - architecture
-  - go
+  - rust
 status: active
-language: Go and Rust
-repository: /home/mfiner/Documents/GitHub/remouseable-rerusted
+language: Rust
+repository: C:/Users/mfiner/GIT/remouseable
 upstream: https://github.com/kevinconway/remouseable
-updated: 2026-06-05
+updated: 2026-06-11
 priority: high
 ---
 
 # reMouseable AI Handoff
 
 > [!important] Purpose
-> This note is primary onboarding document for future human or AI agents. Read it before changing code. Verify assumptions against repository because project may evolve after this note's `updated` date.
+> Primary onboarding document for future human or AI agents. Read this note and
+> [[reMouseable Rust Migration]] before changing code. Always verify this note
+> against current repository state.
 
 ## Executive Summary
 
-reMouseable turns a reMarkable tablet stylus into a host-computer mouse. Host application connects to tablet over SSH, runs `cat` against a Linux `/dev/input/event*` device, parses binary Evdev events, translates stylus position and pressure into mouse actions, scales tablet coordinates to host display coordinates, then injects native host mouse events.
+reMouseable turns a reMarkable tablet stylus into a host-computer mouse. The
+Rust application connects to the tablet over SSH, reads a Linux
+`/dev/input/event*` stream, decodes fixed-width Evdev records, translates stylus
+position and pressure into mouse actions, scales tablet coordinates to the host
+display, then injects native host input.
 
-Project is discontinued upstream but received a compatibility fix and release workflow updates on September 19, 2024. Current code targets:
+Current targets:
 
-- Windows
-- macOS Intel and Apple Silicon
-- Linux X11
-- Linux Wayland through the Rust uinput backend
+- Windows through Enigo.
+- macOS Intel and Apple Silicon through Enigo.
+- Linux X11 through Enigo.
+- Linux Wayland through a relative `uinput` virtual mouse.
 
-Linux Wayland is partially validated on Hyprland. The Rust `auto` host driver
-selects uinput on Linux Wayland and Enigo elsewhere.
+The default launch opens a Slint GUI. `--tui` keeps terminal prompts, diagnostic
+output, and local fixture processing available.
+
+## Origins
+
+This repository is a Rust rewrite of Kevin Conway's original
+[reMouseable](https://github.com/kevinconway/remouseable) project. Preserve
+attribution and GPL-3.0 licensing. Historical Go behavior remains relevant when
+explaining compatibility decisions, but the current source tree is Rust.
 
 ## Repository Snapshot
 
 | Item | Value |
 |---|---|
-| Repository root | `/home/mfiner/Documents/GitHub/remouseable-rerusted` |
-| Default branch | `master` locally |
-| Latest inspected commit | Recheck with `git log --oneline -1` |
-| Latest inspected commit date | Recheck locally |
-| Main language | Rust migration active; original Go docs still present upstream |
-| Native integration | Rust Enigo plus Linux uinput; original Go used vendored RobotGo C headers through CGO |
-| License | GPL-3.0 |
-| CI | Recheck repository |
-| Release targets | Rust target intent: Linux, Windows, macOS amd64, macOS arm64 |
-| Local Go availability on 2026-06-04 | Not installed |
-| Local Rust availability on 2026-06-04 | `rustc 1.94.1`, `cargo 1.94.1` |
+| Repository root | `C:/Users/mfiner/GIT/remouseable` |
+| Main language | Rust 2024 edition |
+| UI | Slint |
+| SSH | `russh` with Ring backend |
+| Host input | Enigo; Linux `uinput` |
+| License | GPL-3.0-only |
+| Deterministic fixture | `fixtures/representative-events.hex` |
+| Integration test | `tests/representative_stream.rs` |
 
-Rust conversion status as of June 5, 2026:
+Run these before work:
 
-- Pure Rust event decoder, filters, state machine, scalers, and runtime implemented.
-- Rust CLI implemented with legacy-compatible flags and new `--input-file`.
-- Local streams emit scaled mouse actions as JSON Lines or named debug events.
-- Live SSH supports password, prompt, default-agent, and custom-agent-socket authentication.
-- Rust validates remote event paths and optionally verifies host keys with `--ssh-known-hosts`.
-- Ring-backed `russh` password authentication and `/dev/input/event1` streaming were validated against a real tablet on June 4, 2026.
-- Live Rust streams inject native host mouse actions through Enigo, or through uinput on Linux Wayland. Local `--input-file` streams emit JSON actions.
-- Real tablet `/dev/input/event1` produced stylus events and ran through Windows native injection without errors on June 4, 2026.
-- Live path is optimized for one-read events, zero-copy SSH chunks, one SSH worker, and duplicate-position suppression.
-- Live Linux Wayland/Hyprland path was tested on June 5, 2026 with a real tablet. `hyprctl monitors -j` detected a 1920x1200 monitor at scale 1.50 as 1280x800 logical pixels. Relative uinput motion now emits small frames; the user reported scaling felt much better after the change.
-- `--host-driver=auto` resolves to uinput only on Linux Wayland and Enigo elsewhere. The Linux-only `evdev` dependency and uinput code are `cfg(target_os = "linux")`.
-- `uinput-tablet` exists as an experimental absolute virtual tablet backend but did not work reliably in Hyprland testing; keep relative `uinput` as Wayland default.
+```shell
+git status --short
+git log --oneline -10
+cargo fmt --check
+cargo test --all-targets
+cargo clippy --all-targets -- -D warnings
+```
 
-Repository had no uncommitted changes when initially assessed on June 4, 2026. Recheck with `git status --short` before work.
+On Windows, Cargo linking requires a complete MSVC Build Tools and Windows SDK
+environment. A missing `msvcrt.lib` indicates local toolchain configuration,
+not necessarily a project code defect.
+
+## Current Capabilities
+
+- Explicit 16-byte little-endian Evdev decoder.
+- Local event-file processing with JSON Lines output.
+- Named debug-event output.
+- Password, prompt, and SSH-agent authentication.
+- Optional OpenSSH `known_hosts` verification.
+- Remote event-path validation against shell injection.
+- Right, left, and vertical coordinate scaling.
+- Native hover, left-button press, drag, and release behavior.
+- Slint GUI with cooperative stream cancellation.
+- Linux Wayland relative `uinput` backend.
+- Hyprland focused-monitor logical-size detection.
+- Experimental Linux absolute `uinput-tablet` backend.
+
+Validated against real hardware:
+
+- Password SSH and `/dev/input/event1` streaming on June 4, 2026.
+- Windows live Enigo pipeline with real stylus events on June 4, 2026.
+- Linux Wayland/Hyprland relative `uinput` scaling on June 5, 2026.
+
+Not yet broadly validated:
+
+- SSH-agent authentication against a real tablet.
+- macOS native behavior, especially drag semantics.
+- Linux X11 real-device behavior.
+- Wayland compositors beyond Hyprland.
+- Multi-monitor selection and coordinate offsets.
+- Windows pen pressure/tilt injection. Current Windows output is mouse input;
+  pressure is only a click threshold and tilt is not decoded.
 
 ## User-Facing Behavior
 
-Typical run:
+GUI launch:
 
 ```shell
-remouseable --ssh-password="TABLET_PASSWORD"
+remouseable
 ```
 
-reMarkable 2 commonly needs:
+Terminal launch:
 
 ```shell
-remouseable --ssh-password="TABLET_PASSWORD" --event-file="/dev/input/event1"
+remouseable --tui
+```
+
+Typical live terminal launch:
+
+```shell
+remouseable --tui \
+  --ssh-password="TABLET_PASSWORD" \
+  --event-file="/dev/input/event1"
+```
+
+Local deterministic stream:
+
+```shell
+remouseable --tui --input-file=path/to/events.bin
+remouseable --tui --input-file=path/to/events.bin --debug-events
 ```
 
 Stylus behavior:
@@ -89,65 +142,57 @@ Stylus behavior:
 - Movement while pressed emits drag behavior.
 - Pressure below threshold releases left mouse button.
 
-Important flags include:
+Important flags:
 
 | Flag | Purpose |
 |---|---|
-| `--ssh-ip` | Tablet SSH address, default `10.11.99.1:22` |
-| `--ssh-user` | SSH user, default `root` |
-| `--ssh-password` | Password or `-` for prompt |
-| `--ssh-socket` | SSH agent socket |
-| `--ssh-known-hosts` | Rust-only optional OpenSSH known-hosts file |
-| `--event-file` | Remote Evdev device path |
+| `--tui` | Use terminal mode instead of Slint GUI |
+| `--input-file` | Read local raw Evdev stream instead of SSH |
+| `--ssh-ip` | Tablet SSH address; default `10.11.99.1:22` |
+| `--ssh-user` | SSH user; default `root` |
+| `--ssh-password` | Password or `-` for hidden prompt |
+| `--ssh-socket` | SSH-agent socket |
+| `--ssh-known-hosts` | Enable host-key verification |
+| `--event-file` | Remote Evdev path; common default `/dev/input/event1` |
 | `--orientation` | `right`, `left`, or `vertical` |
-| `--pressure-threshold` | Click threshold, default `1000` |
-| `--screen-width`, `--screen-height` | Override target display size |
-| `--tablet-width`, `--tablet-height` | Override tablet coordinate maxima |
+| `--pressure-threshold` | Binary contact threshold; default `1000` |
+| `--screen-width`, `--screen-height` | Override display dimensions |
 | `--debug-events` | Print selected raw events |
-| `--disable-drag-event` | Use ordinary movement while pressed |
 | `--host-driver` | `auto`, `enigo`, `uinput`, or `uinput-tablet` |
 
 ## Data Flow
 
 ```mermaid
 flowchart LR
-    Tablet["reMarkable Linux tablet"] -->|"SSH: cat /dev/input/eventN"| SSH["SSH stdout stream"]
-    SSH --> Parser["FileEvdevIterator"]
-    Parser --> Filter["SelectingEvdevIterator: EV_ABS"]
-    Filter --> State["Evdev State Machine"]
-    State --> Scale["Position Scaler"]
-    Scale --> Runtime["Runtime"]
-    Runtime --> Driver["NativeDriver: Enigo or Linux uinput"]
-    Driver --> Host["Host mouse APIs"]
+    Tablet["reMarkable tablet"] -->|"SSH: cat /dev/input/eventN"| SSH["src/ssh.rs"]
+    SSH --> Parser["src/event.rs"]
+    Parser --> State["src/state.rs"]
+    State --> Scale["src/scale.rs"]
+    Scale --> Runtime["src/runtime.rs"]
+    Runtime --> Driver["src/driver.rs"]
+    Driver --> Host["Host input APIs"]
 ```
+
+Local `--input-file` streams enter at the parser and emit JSON actions instead
+of moving the real cursor.
 
 ## Core Architecture
 
-### Entry Point and SSH
+### Entry Point and UI
 
-File: `main.go`
+`src/main.rs` parses CLI arguments and selects GUI or terminal mode.
+`src/ui.rs` owns Slint callbacks and runs blocking SSH/native-input work on a
+background thread. Stop is cooperative through an atomic cancellation token.
 
-Responsibilities:
+### SSH
 
-1. Parse CLI flags using `spf13/pflag`.
-2. Get host screen size from `RobotgoDriver`.
-3. Configure SSH password or agent authentication.
-4. Connect to tablet.
-5. Start remote command `cat <event-file>`.
-6. Assemble iterator, state machine, scaler, driver, and runtime.
-7. Run until event stream ends or an error occurs.
-
-Main entry point has no meaningful automated test coverage.
+`src/ssh.rs` configures `russh`, authenticates, validates the remote event path,
+starts `cat <event-file>`, and bridges async SSH chunks into a blocking reader.
+It supports password and agent authentication plus optional known-hosts checks.
 
 ### Event Parser
 
-Files:
-
-- `pkg/domain.go`
-- `pkg/evdeviterator.go`
-- `pkg/evdevcodes.go`
-
-Remote wire event layout is exactly 16 bytes:
+`src/event.rs` decodes exactly 16 bytes per tablet event:
 
 ```text
 u32 seconds
@@ -157,39 +202,21 @@ u16 event code
 i32 value
 ```
 
-All fields use little-endian encoding.
+All fields are little-endian. Keep this explicit parser: tablet timestamps use
+32-bit fields, while host-native `input_event` layouts may differ.
 
-> [!warning] ABI Constraint
-> Keep custom 16-byte parser. Tablet emits 32-bit time fields. Host-native Linux `input_event` layouts can use 64-bit time fields and are not guaranteed to match this stream.
-
-`SelectingEvdevIterator` currently retains only `EV_ABS` events. State machine uses:
-
-- `ABS_X`
-- `ABS_Y`
-- `ABS_PRESSURE`
+Current named absolute codes are `ABS_X`, `ABS_Y`, and `ABS_PRESSURE`.
 
 ### State Machine
 
-File: `pkg/statemachine.go`
-
-`EvdevStateMachine`:
-
-- Stores latest X and Y.
-- Emits movement only after both X and Y changed.
-- Emits click when pressure becomes greater than threshold.
-- Emits unclick when pressure becomes less than threshold.
-
-`DraggingEvdevStateMachine` wraps base state machine and converts movement into drag movement while clicked.
-
-Current edge behavior:
-
-- Pressure exactly equal to threshold causes neither transition.
-- Events outside `EV_ABS` are ignored.
-- X-only or Y-only changes do not emit movement until other coordinate changes.
+`src/state.rs` stores X/Y, waits for both coordinates before movement, and uses
+pressure threshold crossings for click/release. Pressure equal to threshold
+causes no transition. Drag mode converts movement to drag while clicked.
 
 ### Position Scaling
 
-File: `pkg/positionscaler.go`
+`src/scale.rs` implements right, left, and vertical mappings. Preserve integer
+truncation and orientation behavior unless intentionally changing compatibility.
 
 Default tablet maxima:
 
@@ -198,232 +225,105 @@ height / X maximum: 15725
 width / Y maximum: 20967
 ```
 
-Implementations:
+### Runtime and Drivers
 
-- `RightPositionScaler`: direct proportional mapping.
-- `LeftPositionScaler`: flips both axes, then scales.
-- `VerticalPositionScaler`: swaps axes, flips one axis, then scales.
+`src/runtime.rs` scales state changes and dispatches move, drag, press, and
+release operations through the `HostDriver` trait.
 
-Preserve exact integer truncation behavior during ports unless intentionally changing compatibility.
+`src/driver.rs` contains:
 
-### Runtime
+- Enigo absolute mouse driver for Windows, macOS, and Linux X11.
+- Linux relative `uinput` mouse driver used by Wayland `auto` mode.
+- Experimental Linux absolute `uinput-tablet` driver.
 
-File: `pkg/runtime.go`
-
-Runtime consumes state changes, scales movement coordinates, and calls driver operations:
-
-- Move
-- Drag
-- Click
-- Unclick
-
-First encountered runtime error stops loop and is returned by `Close`.
-
-### Host Driver
-
-Files:
-
-- `pkg/driver.go`
-- `pkg/internal/robotgo/`
-
-Only five RobotGo operations are used:
-
-- Get screen size
-- Move mouse
-- Drag mouse
-- Press left button
-- Release left button
-
-Vendored RobotGo native code uses:
-
-| Platform | Native mechanism |
-|---|---|
-| Windows | `SendInput` and `GetSystemMetrics` |
-| macOS | Core Graphics `CGEvent` APIs |
-| Linux X11 | Xlib and XTest |
-
-Vendored native surface is much larger than actual used feature set.
+The drivers release a held left button during shutdown.
 
 ## Important Files
 
 | Path | Purpose |
 |---|---|
-| `main.go` | CLI, SSH, dependency wiring, main loop |
-| `pkg/domain.go` | Interfaces and state-change domain types |
-| `pkg/evdeviterator.go` | Binary event parser and filters |
-| `pkg/statemachine.go` | Evdev-to-mouse state transitions |
-| `pkg/positionscaler.go` | Orientation and coordinate scaling |
-| `pkg/runtime.go` | State-to-driver dispatch |
-| `pkg/driver.go` | RobotGo driver adapter |
-| `pkg/evdevcodes.go` | Generated Linux event constants and names |
-| `pkg/internal/gencodes/main.go` | Evdev code generator |
-| `pkg/internal/robotgo/` | Vendored CGO/native host integration |
-| `technical-documentation/README.md` | Original detailed design notes |
-| `.github/workflows/pr-workflow.yaml` | Tests and cross-platform build checks |
-| `.github/workflows/tag-workflow.yaml` | Release builds |
-| `.devcontainer/Containerfile` | Linux development dependencies |
-| `src/ssh.rs` | Rust live SSH source, authentication, host-key checks |
-| `src/main.rs` | Rust CLI and application assembly |
-| `src/driver.rs` | Rust native host drivers: Enigo, Linux uinput, Hyprland display detection, relative motion chunking |
+| `Cargo.toml` | Rust package and target-specific dependencies |
+| `src/main.rs` | CLI and application assembly |
+| `src/ui.rs` | Slint frontend |
+| `src/ssh.rs` | Live tablet event source |
+| `src/event.rs` | Binary event decoding and names |
+| `src/state.rs` | Stylus-to-mouse state transitions |
+| `src/scale.rs` | Orientation and coordinate scaling |
+| `src/runtime.rs` | State-to-driver dispatch |
+| `src/driver.rs` | Native host drivers |
+| `src/app.rs` | Shared processing pipeline and JSON driver |
+| `ui/remouseable.slint` | GUI layout |
+| `tests/representative_stream.rs` | End-to-end fixture tests |
+| `fixtures/representative-events.hex` | Synthetic deterministic event fixture |
 
 ## Testing
 
-Test files:
-
-- `pkg/evdeviterator_test.go`
-- `pkg/statemachine_test.go`
-- `pkg/positionscaler_test.go`
-- `pkg/runtime_test.go`
-
-Generated GoMock files provide interface mocks.
-
-Expected Go commands:
-
-```shell
-make test
-make lint
-make build
-```
-
-Direct package test:
-
-```shell
-go test ./pkg
-```
-
-> [!warning] Local Verification Gap
-> Go was not installed during June 4, 2026 assessment, so tests were not run locally. CI installs Linux X11 development packages before build and test.
-
-Native driver tests are difficult because they manipulate actual host mouse. Use unit tests for core logic and explicit manual smoke tests per platform.
-
-Rust validation:
-
 ```shell
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
+cargo clippy --all-targets -- -D warnings
 cargo test --doc
 ```
 
-Most recent local validation on June 5, 2026 after Wayland/uinput scaling work:
+The fixture is synthetic, not a captured real-tablet stream. Native driver tests
+can move or click the operator's real cursor; warn before manual injection tests.
 
-```shell
-cargo fmt --check
-cargo test --all-targets
-cargo clippy --all-targets -- -D warnings
-cargo build --release
-```
+## Known Risks and Open Work
 
-All passed locally. A Windows cross-check was attempted with
-`cargo check --target x86_64-pc-windows-gnu`, but the local Rust toolchain did
-not have that target installed. The failure was `can't find crate for core`, not
-a code error. Before claiming Windows release readiness, install the Windows Rust
-target and run a real check/build on Windows or in CI.
-
-On the inspected Windows host, Ring-backed `russh` requires a complete MSVC
-BuildTools environment. Loading the `14.52.36328` VC include/lib paths and
-Windows SDK `10.0.26100.0` allowed all checks to pass. Keep `Cargo.lock`
-committed: `russh 0.61.1` currently depends on RustCrypto prereleases, and a
-fresh unconstrained resolution can select incompatible `primefield` versions.
-
-## Build and Release
-
-Linux dependencies include:
-
-```text
-gcc libc6-dev libx11-dev xorg-dev libxtst-dev
-```
-
-Windows builds cross-compile from Linux using MinGW:
-
-```shell
-CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows go build -o .build/windows.exe main.go
-```
-
-macOS builds run on GitHub-hosted macOS runners using latest stable Xcode.
-
-## Known Defects and Security Risks
-
-> [!danger] Fix Before Broad Distribution
-> Current behavior contains security and reliability issues. Preserve compatibility only where necessary.
-
-1. **SSH host verification disabled**
-   - Location: `main.go`
-   - Uses `ssh.InsecureIgnoreHostKey()`.
-   - Risk: man-in-the-middle attack.
-   - Better design: known-hosts verification with explicit first-use workflow or opt-in insecure flag.
-   - Rust preserves this default for launch compatibility, emits a warning, and supports `--ssh-known-hosts`.
-
-2. **Remote command injection through event path**
-   - Location: `main.go`
-   - Runs `cat %s` with user-controlled `--event-file`.
-   - Risk: arbitrary shell command execution as tablet root.
-   - Better design: validate event path against strict `/dev/input/event[0-9]+` pattern, safely shell-quote it, or use SFTP/direct channel behavior.
-   - Fixed in Rust: only safe absolute event paths are accepted.
-
-3. **Partial-read bug**
-   - Location: `pkg/evdeviterator.go`
-   - Calls `Read(buf)` once and assumes full 16-byte event.
-   - Streams may legally return fewer bytes.
-   - Fix: use `io.ReadFull`; Rust equivalent is `read_exact`.
-
-4. **Panics as user-facing error handling**
-   - Location: mostly `main.go`
-   - Failures produce stack traces instead of actionable messages and stable exit codes.
-
-5. **No main/SSH integration tests**
-   - Core logic is tested, but assembly and SSH behavior are not.
-
-6. **Multi-monitor handling incomplete**
-   - Screen query may return combined dimensions.
-   - No monitor selection or coordinate offset selection.
-   - Rust Hyprland path uses the focused monitor's logical size, but broader multi-monitor behavior still needs explicit tests.
-
-7. **Wayland support is Linux/uinput-specific**
-   - The Go implementation and Rust Enigo backend assume X11-style mouse injection on Linux.
-   - Rust `--host-driver=auto` selects uinput on Linux Wayland.
-   - Hyprland support has been smoke-tested with a real tablet and improved scaling, but broader Wayland compositor coverage is still open.
-   - The virtual mouse backend needs permission to open `/dev/uinput`.
+1. **SSH host verification is opt-in.** Without `--ssh-known-hosts`, the app
+   warns and accepts the host for compatibility. Secure-by-default onboarding
+   remains open.
+2. **Cross-platform release automation is stale.** GitHub workflows still
+   contain obsolete Go jobs and release commands. Replace them with Rust builds
+   before relying on CI releases.
+3. **Devcontainer is stale.** It still uses a Go image/extensions and must be
+   converted before being documented as supported Rust setup.
+4. **Multi-monitor behavior is incomplete.** Hyprland uses focused-monitor size,
+   but monitor selection and offsets are not general.
+5. **Platform acceptance is incomplete.** macOS, Linux X11, and additional
+   Wayland compositors need real-device smoke tests.
+6. **Windows receives mouse input, not pen input.** Continuous pressure and tilt
+   require a Windows synthetic pen driver and richer event/frame domain model.
+7. **Dependency security matters.** Keep `Cargo.lock`, review `russh` and input
+   crate updates, and run `cargo audit` when available.
 
 ## Safe Change Rules
 
-1. Preserve remote 16-byte event format.
-2. Preserve threshold semantics unless tests and release notes explicitly define a change.
-3. Preserve orientation math and integer truncation when porting.
-4. Keep host driver behind interface or trait.
-5. Do not test native mouse injection without warning operator; tests move/click real cursor.
-6. Treat tablet SSH compatibility as real-device acceptance criterion.
-7. Validate Windows, macOS, and Linux independently.
-8. Do not delete Go implementation until replacement passes captured-stream comparison and real-device smoke tests.
+1. Preserve the remote 16-byte event format.
+2. Preserve threshold and orientation behavior unless tests define a change.
+3. Keep event source, scaler, and host driver behind traits.
+4. Keep local fixture processing deterministic and cursor-safe.
+5. Treat real-tablet SSH as an acceptance criterion.
+6. Validate Windows, macOS, Linux X11, and Linux Wayland independently.
+7. Never record tablet passwords in source, fixtures, logs, or notes.
+8. Preserve original-project attribution and GPL licensing.
 
-## Recommended Agent Startup Checklist
+## Agent Startup Checklist
 
 - [ ] Read this note and [[reMouseable Rust Migration]].
-- [ ] Run `git status --short`.
-- [ ] Read repository `README.md` and `technical-documentation/README.md`.
-- [ ] Inspect latest commits with `git log --oneline -10`.
-- [ ] Confirm available Go/Rust toolchains.
-- [ ] Run existing tests before edits when Go is available.
-- [ ] Identify target platforms and whether real tablet is available.
-- [ ] Capture or obtain representative binary Evdev stream for deterministic tests.
-- [ ] Keep changes scoped and preserve existing user changes.
+- [ ] Run `git status --short`; preserve unrelated user changes.
+- [ ] Read `README.md`, `Cargo.toml`, and files relevant to requested work.
+- [ ] Inspect recent commits.
+- [ ] Run available Rust checks before and after edits.
+- [ ] Confirm target platforms and real-tablet availability.
+- [ ] Use captured or synthetic 16-byte event fixtures for deterministic tests.
+- [ ] Warn before tests that inject real native input.
 
-## Acceptance Criteria for Any Replacement
+## Acceptance Criteria
 
-- [ ] Password SSH works against supported reMarkable firmware.
-- [ ] Agent SSH works where currently supported.
-- [ ] Hover moves cursor.
-- [ ] Stylus contact presses left button.
-- [ ] Movement while pressed drags correctly, especially on macOS.
-- [ ] Stylus lift releases button.
-- [ ] All three orientations match Go behavior.
-- [ ] Debug event output remains useful.
-- [ ] Windows build and smoke test pass.
-- [ ] macOS Intel and ARM builds pass; macOS smoke test passes.
-- [ ] Linux X11 build and smoke test pass.
-- [ ] Linux Wayland/Hyprland uinput smoke test passes for hover, press, drag, release, and full-screen scaling.
-- [ ] Remote event path cannot inject commands.
-- [ ] Host-key behavior is secure by default. Rust behavior is documented but remains insecure by default for Go launch compatibility.
+- [x] Password SSH works against tested reMarkable firmware.
+- [ ] Agent SSH works against a real tablet.
+- [x] Hover, press, drag, and release work on tested Windows host.
+- [x] Right, left, and vertical mappings have unit coverage.
+- [x] Local stream and debug output have integration coverage.
+- [ ] Windows release build and smoke test pass in supported CI/toolchain.
+- [ ] macOS Intel/ARM builds and real-device smoke tests pass.
+- [ ] Linux X11 build and real-device smoke test pass.
+- [x] Linux Wayland/Hyprland basic scaling has real-device validation.
+- [ ] Additional Wayland compositor and multi-monitor tests pass.
+- [x] Remote event path rejects shell injection.
+- [ ] SSH host verification becomes secure by default with usable onboarding.
+- [ ] Rust-only CI and release workflows produce supported binaries.
 
 ## Related Notes
 
@@ -432,9 +332,8 @@ macOS builds run on GitHub-hosted macOS runners using latest stable Xcode.
 
 ## External References
 
-- [Upstream repository](https://github.com/kevinconway/remouseable)
-- [Alternative remarkable_mouse project](https://github.com/Evidlo/remarkable_mouse)
-- [Enigo cross-platform input simulation](https://github.com/enigo-rs/enigo)
-- [Russh SSH client/server](https://github.com/warp-tech/russh)
+- [Original reMouseable project](https://github.com/kevinconway/remouseable)
+- [Enigo](https://github.com/enigo-rs/enigo)
+- [Russh](https://github.com/warp-tech/russh)
 - [Rust evdev crate](https://docs.rs/evdev/latest/evdev/)
 - [Rust display-info crate](https://docs.rs/crate/display-info/latest)
