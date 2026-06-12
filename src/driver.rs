@@ -497,14 +497,17 @@ impl HostDriver for NativeDriver {
 impl PenDriver for NativeDriver {
     type Error = io::Error;
 
-    fn inject_pen(&mut self, _input: PenInput) -> Result<(), Self::Error> {
+    fn inject_pen(&mut self, input: PenInput) -> Result<(), Self::Error> {
         match &mut self.inner {
             #[cfg(target_os = "windows")]
-            NativeDriverInner::WindowsPen(driver) => driver.inject_pen(_input),
-            _ => Err(io::Error::new(
-                io::ErrorKind::Unsupported,
-                "selected host driver does not support pen frames",
-            )),
+            NativeDriverInner::WindowsPen(driver) => driver.inject_pen(input),
+            _ => {
+                let _ = input;
+                Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "selected host driver does not support pen frames",
+                ))
+            }
         }
     }
 }

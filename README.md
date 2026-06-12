@@ -14,7 +14,8 @@ The Rust application supports:
 - reMarkable event streams over SSH.
 - Password and SSH-agent authentication.
 - Optional OpenSSH `known_hosts` verification.
-- Windows synthetic pen injection with continuous pressure and X/Y tilt.
+- Windows synthetic pen injection with continuous pressure, X/Y tilt, and
+  Marker Plus eraser-side support.
 - Windows Enigo mouse fallback and macOS mouse injection through Enigo.
 - Linux X11 mouse injection through Enigo.
 - Linux Wayland mouse injection through a `uinput` virtual mouse.
@@ -128,13 +129,17 @@ falling back. It requires Windows 10 version 1809 or newer.
 `uinput-tablet` is experimental and is not the default because absolute-tablet
 behavior was unreliable during Hyprland testing.
 
-The verified reMarkable pen ranges are pressure `0..4095` and tilt
-`-9000..9000` on both axes. Override calibration only for hardware reporting
-different ranges:
+The verified reMarkable tip pressure range is `0..4095`; a June 12, 2026 live
+capture measured the Marker Plus eraser at positive values `184..2506`. Tilt is
+`-9000..9000` on both axes. Tip and eraser contact use a shared default
+threshold of `200`. Override calibration only for hardware reporting different
+ranges:
 
 ```shell
 remouseable --tui --host-driver=windows-pen \
   --tablet-pressure-max=4095 \
+  --tablet-eraser-pressure-min=184 \
+  --tablet-eraser-pressure-max=2506 \
   --tablet-tilt-max=9000
 ```
 
@@ -142,15 +147,18 @@ The tested event device exposes no barrel-rotation axis, so reMouseable does
 not synthesize rotation. Pressure and tilt availability depends on tablet
 firmware and the selected event device.
 
+The eraser side uses the standard Linux `BTN_TOOL_RUBBER` event and is injected
+on Windows as an inverted eraser pen. Support depends on the pen and tablet
+firmware exposing that event on the selected event device.
+
 On Windows, the GUI lists every attached monitor and maps tablet coordinates to
 the selected display. Terminal users can select the same display by numeric ID
 with `--monitor-id`.
 
-The Windows pen update interval is adjustable from `1` to `20` milliseconds in
-the GUI, with a default of `5` ms (about 200 Hz). Lower values reduce latency
-and preserve more samples but increase CPU/input load and may reduce stability.
-Higher values reduce load but add latency. Terminal users can set
-`--windows-pen-interval-ms`.
+The Windows pen path uses a `5` ms coalescing target. Terminal users can retain
+compatibility with existing launch scripts through `--windows-pen-interval-ms`,
+but actual output cadence is constrained by Windows synthetic-pointer
+acceptance and may be lower than the requested target.
 
 On Hyprland, reMouseable reads the focused monitor's logical dimensions from
 `hyprctl monitors -j`. Override display detection when necessary:
@@ -190,8 +198,10 @@ options include:
 | `--debug-events` | Print selected hardware events |
 | `--host-driver <DRIVER>` | Select `auto`, `enigo`, `uinput`, `uinput-tablet`, or `windows-pen` |
 | `--orientation <VALUE>` | Select `right`, `left`, or `vertical` |
-| `--pressure-threshold <VALUE>` | Set stylus contact threshold; default `1000` |
+| `--pressure-threshold <VALUE>` | Set tip and eraser contact threshold; default `200` |
 | `--tablet-pressure-max <VALUE>` | Raw pressure maximum; verified default `4095` |
+| `--tablet-eraser-pressure-min <VALUE>` | Minimum positive eraser pressure; verified default `184` |
+| `--tablet-eraser-pressure-max <VALUE>` | Raw eraser pressure maximum; verified default `2506` |
 | `--tablet-tilt-max <VALUE>` | Absolute raw tilt maximum; verified default `9000` |
 | `--screen-width <VALUE>` | Override detected host display width |
 | `--screen-height <VALUE>` | Override detected host display height |

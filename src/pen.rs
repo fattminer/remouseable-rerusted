@@ -7,13 +7,15 @@
 use crate::{
     PositionScaler,
     event::{
-        ABS_PRESSURE, ABS_TILT_X, ABS_TILT_Y, ABS_X, ABS_Y, BTN_TOOL_PEN, EV_ABS, EV_KEY, EV_SYN,
-        EventSource, SYN_REPORT,
+        ABS_PRESSURE, ABS_TILT_X, ABS_TILT_Y, ABS_X, ABS_Y, BTN_TOOL_PEN, BTN_TOOL_RUBBER, EV_ABS,
+        EV_KEY, EV_SYN, EventSource, SYN_REPORT,
     },
 };
 use std::{cmp::Ordering, error::Error, fmt, io};
 
 pub const DEFAULT_TABLET_PRESSURE_MAX: i32 = 4_095;
+pub const DEFAULT_ERASER_PRESSURE_MIN: i32 = 184;
+pub const DEFAULT_ERASER_PRESSURE_MAX: i32 = 2_506;
 pub const DEFAULT_TABLET_TILT_MAX: i32 = 9_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -26,6 +28,12 @@ pub enum PenPhase {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PenTool {
+    Tip,
+    Eraser,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PenInput {
     pub x: i32,
     pub y: i32,
@@ -33,6 +41,7 @@ pub struct PenInput {
     pub tilt_x: Option<i32>,
     pub tilt_y: Option<i32>,
     pub rotation: Option<u32>,
+    pub tool: PenTool,
     pub phase: PenPhase,
     pub position_changed: bool,
 }
@@ -70,6 +79,8 @@ pub enum PenOrientation {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PenCalibration {
     pub pressure_max: i32,
+    pub eraser_pressure_min: i32,
+    pub eraser_pressure_max: i32,
     pub tilt_max: i32,
     pub rotation_max: Option<i32>,
 }
@@ -85,6 +96,12 @@ impl PenCalibration {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "tablet pressure maximum must be positive",
+            ));
+        }
+        if self.eraser_pressure_min < 0 || self.eraser_pressure_max <= self.eraser_pressure_min {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "eraser pressure range must be non-negative and increasing",
             ));
         }
         if self.tilt_max <= 0 {
@@ -114,7 +131,9 @@ pub struct EvdevPenFrameSource<S> {
     rotation: Option<i32>,
     change_flags: u8,
     contacting: bool,
-    in_range: Option<bool>,
+    pen_in_range: Option<bool>,
+    eraser_in_range: Option<bool>,
+    active_tool: PenTool,
     finished: bool,
 }
 
@@ -131,18 +150,25 @@ impl<S> EvdevPenFrameSource<S> {
             rotation: None,
             change_flags: 0,
             contacting: false,
-            in_range: None,
+            pen_in_range: None,
+            eraser_in_range: None,
+            active_tool: PenTool::Tip,
             finished: false,
         }
     }
 
     fn apply(&mut self, event_type: u16, code: u16, value: i32) {
-        if event_type == EV_KEY && code == BTN_TOOL_PEN {
+        if event_type == EV_KEY && matches!(code, BTN_TOOL_PEN | BTN_TOOL_RUBBER) {
             let in_range = value != 0;
-            if self.in_range != Some(in_range) {
+            let current = if code == BTN_TOOL_PEN {
+                &mut self.pen_in_range
+            } else {
+                &mut self.eraser_in_range
+            };
+            if *current != Some(in_range) {
                 self.change_flags |= FRAME_CHANGED;
             }
-            self.in_range = Some(in_range);
+            *current = Some(in_range);
             return;
         }
         if event_type != EV_ABS {
@@ -192,7 +218,17 @@ impl<S> EvdevPenFrameSource<S> {
         let (Some(x), Some(y)) = (self.x, self.y) else {
             return None;
         };
-        if self.in_range == Some(false) {
+        let in_range = self.pen_in_range == Some(true) || self.eraser_in_range == Some(true);
+        let proximity_known = self.pen_in_range.is_some() || self.eraser_in_range.is_some();
+        if in_range {
+            self.active_tool = if self.eraser_in_range == Some(true) {
+                PenTool::Eraser
+            } else {
+                PenTool::Tip
+            };
+        }
+        let tool = self.active_tool;
+        if proximity_known && !in_range {
             self.contacting = false;
             self.change_flags = 0;
             return Some(PenInput {
@@ -202,6 +238,7 @@ impl<S> EvdevPenFrameSource<S> {
                 tilt_x: self.tilt_x,
                 tilt_y: self.tilt_y,
                 rotation: None,
+                tool,
                 phase: PenPhase::OutOfRange,
                 position_changed: false,
             });
@@ -227,6 +264,7 @@ impl<S> EvdevPenFrameSource<S> {
             tilt_x: self.tilt_x,
             tilt_y: self.tilt_y,
             rotation: self.rotation.map(i32::unsigned_abs),
+            tool,
             phase,
             position_changed,
         })
@@ -320,7 +358,14 @@ impl<S: PenSource, P: PositionScaler, D: PenDriver> PenRuntime<S, P, D> {
         (input.x, input.y) = self.scaler.scale(input.x, input.y);
         input.x += self.screen_origin.0;
         input.y += self.screen_origin.1;
-        input.pressure = normalize_u32(input.pressure, self.calibration.pressure_max, 1_024);
+        input.pressure = match input.tool {
+            PenTool::Tip => normalize_u32(input.pressure, self.calibration.pressure_max, 1_024),
+            PenTool::Eraser => normalize_pressure_range(
+                input.pressure,
+                self.calibration.eraser_pressure_min,
+                self.calibration.eraser_pressure_max,
+            ),
+        };
         (input.tilt_x, input.tilt_y) = transform_tilt(
             input.tilt_x,
             input.tilt_y,
@@ -342,6 +387,16 @@ impl<S: PenSource, P: PositionScaler, D: PenDriver> PenRuntime<S, P, D> {
 fn normalize_u32(value: u32, source_max: i32, target_max: u32) -> u32 {
     let source_max = u32::try_from(source_max).unwrap_or(1);
     value.min(source_max).saturating_mul(target_max) / source_max
+}
+
+fn normalize_pressure_range(value: u32, source_min: i32, source_max: i32) -> u32 {
+    if value == 0 {
+        return 0;
+    }
+    let minimum = u32::try_from(source_min).unwrap_or(0);
+    let maximum = u32::try_from(source_max).unwrap_or(minimum.saturating_add(1));
+    let span = maximum.saturating_sub(minimum).max(1);
+    1 + value.clamp(minimum, maximum).saturating_sub(minimum) * 1_023 / span
 }
 
 fn normalize_tilt(value: i32, maximum: i32) -> i32 {
@@ -505,9 +560,40 @@ mod tests {
     }
 
     #[test]
+    fn tracks_eraser_proximity_and_contact() {
+        let source = Events(
+            [
+                event(EV_KEY, BTN_TOOL_RUBBER, 1),
+                event(EV_ABS, ABS_X, 10),
+                event(EV_ABS, ABS_Y, 20),
+                report(),
+                event(EV_ABS, ABS_PRESSURE, 1_001),
+                report(),
+                event(EV_KEY, BTN_TOOL_RUBBER, 0),
+                report(),
+            ]
+            .into(),
+        );
+        let mut frames = EvdevPenFrameSource::new(source, 1_000);
+
+        let hover = frames.next_pen().unwrap().unwrap();
+        assert_eq!(hover.tool, PenTool::Eraser);
+        assert_eq!(hover.phase, PenPhase::Hover);
+        let down = frames.next_pen().unwrap().unwrap();
+        assert_eq!(down.tool, PenTool::Eraser);
+        assert_eq!(down.phase, PenPhase::Down);
+        let out = frames.next_pen().unwrap().unwrap();
+        assert_eq!(out.tool, PenTool::Eraser);
+        assert_eq!(out.phase, PenPhase::OutOfRange);
+    }
+
+    #[test]
     fn normalizes_and_rotates_tilt() {
         assert_eq!(normalize_u32(2_048, 4_095, 1_024), 512);
         assert_eq!(normalize_u32(9_999, 4_095, 1_024), 1_024);
+        assert_eq!(normalize_pressure_range(0, 184, 2_506), 0);
+        assert_eq!(normalize_pressure_range(184, 184, 2_506), 1);
+        assert_eq!(normalize_pressure_range(2_506, 184, 2_506), 1_024);
         assert_eq!(
             transform_tilt(Some(9_000), Some(-4_500), PenOrientation::Vertical, 9_000),
             (Some(-45), Some(-90))
@@ -520,6 +606,8 @@ mod tests {
         assert!(
             PenCalibration {
                 pressure_max: 0,
+                eraser_pressure_min: 184,
+                eraser_pressure_max: 2_506,
                 tilt_max: 9_000,
                 rotation_max: None,
             }
@@ -529,6 +617,8 @@ mod tests {
         assert!(
             PenCalibration {
                 pressure_max: 4_095,
+                eraser_pressure_min: 184,
+                eraser_pressure_max: 2_506,
                 tilt_max: -1,
                 rotation_max: None,
             }
@@ -558,6 +648,8 @@ mod tests {
             PenOrientation::Right,
             PenCalibration {
                 pressure_max: 4_095,
+                eraser_pressure_min: 184,
+                eraser_pressure_max: 2_506,
                 tilt_max: 9_000,
                 rotation_max: None,
             },

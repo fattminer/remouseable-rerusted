@@ -18,6 +18,7 @@ pub const ABS_PRESSURE: u16 = 0x18;
 pub const ABS_TILT_X: u16 = 0x1a;
 pub const ABS_TILT_Y: u16 = 0x1b;
 pub const BTN_TOOL_PEN: u16 = 0x140;
+pub const BTN_TOOL_RUBBER: u16 = 0x141;
 
 #[must_use]
 pub const fn event_type_name(event_type: u16) -> &'static str {
@@ -34,6 +35,7 @@ pub const fn event_code_name(event_type: u16, code: u16) -> &'static str {
     match (event_type, code) {
         (EV_SYN, SYN_REPORT) => "SYN_REPORT",
         (EV_KEY, BTN_TOOL_PEN) => "BTN_TOOL_PEN",
+        (EV_KEY, BTN_TOOL_RUBBER) => "BTN_TOOL_RUBBER",
         (EV_ABS, ABS_X) => "ABS_X",
         (EV_ABS, ABS_Y) => "ABS_Y",
         (EV_ABS, ABS_PRESSURE) => "ABS_PRESSURE",
@@ -226,6 +228,7 @@ mod tests {
         assert_eq!(event_type_name(EV_KEY), "EV_KEY");
         assert_eq!(event_code_name(EV_SYN, SYN_REPORT), "SYN_REPORT");
         assert_eq!(event_code_name(EV_KEY, BTN_TOOL_PEN), "BTN_TOOL_PEN");
+        assert_eq!(event_code_name(EV_KEY, BTN_TOOL_RUBBER), "BTN_TOOL_RUBBER");
         assert_eq!(event_code_name(EV_ABS, ABS_TILT_X), "ABS_TILT_X");
         assert_eq!(event_code_name(EV_ABS, ABS_TILT_Y), "ABS_TILT_Y");
     }

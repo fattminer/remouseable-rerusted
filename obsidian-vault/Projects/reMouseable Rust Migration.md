@@ -136,6 +136,7 @@ cryptographic dependency resolution is sensitive.
 - [x] Add explicit Windows pen monitor selection and virtual-screen offsets.
 - [x] Add Windows synthetic pen pressure/tilt backend.
 - [x] Add attached-monitor selection for Windows pen mapping.
+- [x] Map `BTN_TOOL_RUBBER` to Windows inverted eraser input.
 
 Windows validation on June 4, 2026 processed live `/dev/input/event1` stylus
 events through SSH, parsing, scaling, and Enigo without runtime errors.
@@ -166,10 +167,10 @@ full-screen scaling. Experimental absolute tablet injection remained unreliable.
 - Track coordinate changes with compact bit flags.
 - Suppress duplicate native absolute positions.
 - Enable TCP `NODELAY`.
-- Coalesce Windows hover/contact frames to about 200 Hz while preserving every
-  contact and proximity transition.
-- Expose the Windows coalescing interval as a 1-20 ms GUI slider and CLI option;
-  retain 5 ms as the default.
+- Coalesce Windows hover/contact frames with a 5 ms target while preserving
+  every contact and proximity transition.
+- The attempted 1-20 ms GUI control was removed after live telemetry remained
+  near 32 Hz at both extremes; Windows error-87 retry timing dominated it.
 
 Movement coalescing remains possible, but must preserve pressure transition
 ordering so click and drag boundaries are never lost.
@@ -240,6 +241,8 @@ updates, run `cargo audit`, and validate Windows with a complete MSVC/SDK setup.
 | 2026-06-12 | Use virtual-screen-relative Windows monitor origins | Synthetic pointer coordinates are relative to the virtual desktop top-left |
 | 2026-06-12 | Pace and retry Windows pen frames | Buffered SSH frames can arrive faster than synthetic pointer injection accepts |
 | 2026-06-12 | Map `BTN_TOOL_PEN` proximity | Windows requires explicit out-of-range and fresh pointer lifecycle transitions |
+| 2026-06-12 | Map `BTN_TOOL_RUBBER` eraser side | Preserve Marker Plus tool identity and emit Windows inverted eraser flags |
+| 2026-06-12 | Calibrate tip/eraser pressure separately | Live capture measured tip `1..4095`, eraser `184..2506`; use shared contact threshold `200` |
 
 ## Validation
 

@@ -87,7 +87,8 @@ not necessarily a project code defect.
 - Linux Wayland relative `uinput` backend.
 - Hyprland focused-monitor logical-size detection.
 - Experimental Linux absolute `uinput-tablet` backend.
-- Windows synthetic pen backend with continuous pressure and X/Y tilt.
+- Windows synthetic pen backend with continuous pressure, X/Y tilt, and
+  eraser-side injection.
 - Windows monitor enumeration and per-monitor pen coordinate mapping.
 - Pressing Enter in the GUI password field starts the connection when idle.
 
@@ -99,12 +100,10 @@ Validated against real hardware:
 - Windows synthetic pen ran continuously for 60 seconds on June 12, 2026 after
   adding injection pacing, transient retry, and pen proximity lifecycle frames.
 - Real tablet measurement showed roughly 520-570 `SYN_REPORT` frames/second.
-  Windows hover/contact updates are coalesced to about 200 Hz to prevent a
-  synthetic-pointer queue backlog; Down, Up, and proximity transitions bypass
-  coalescing.
-- Windows pen update interval is user-adjustable from 1-20 ms in the GUI or via
-  `--windows-pen-interval-ms`; default is 5 ms. Lower values improve latency and
-  sample fidelity but increase load and can reduce stability.
+  Windows synthetic injection accepted about 32 updates/second while roughly
+  500 source frames/second were coalesced. Changing the 1-20 ms target did not
+  change that effective rate because error-87 retries dominate timing. The GUI
+  slider was removed rather than presenting ineffective control.
 
 Not yet broadly validated:
 
@@ -168,8 +167,10 @@ Important flags:
 | `--ssh-known-hosts` | Enable host-key verification |
 | `--event-file` | Remote Evdev path; common default `/dev/input/event1` |
 | `--orientation` | `right`, `left`, or `vertical` |
-| `--pressure-threshold` | Binary contact threshold; default `1000` |
+| `--pressure-threshold` | Tip and eraser contact threshold; default `200` |
 | `--tablet-pressure-max` | Pressure calibration; verified default `4095` |
+| `--tablet-eraser-pressure-min` | Eraser positive minimum; verified default `184` |
+| `--tablet-eraser-pressure-max` | Eraser maximum; verified default `2506` |
 | `--tablet-tilt-max` | Tilt calibration; verified default `9000` |
 | `--screen-width`, `--screen-height` | Override display dimensions |
 | `--monitor-id` | Select attached monitor ID for Windows pen mapping |
@@ -223,13 +224,19 @@ All fields are little-endian. Keep this explicit parser: tablet timestamps use
 32-bit fields, while host-native `input_event` layouts may differ.
 
 Named pen codes include `ABS_X`, `ABS_Y`, `ABS_PRESSURE`, `ABS_TILT_X`,
-`ABS_TILT_Y`, and `BTN_TOOL_PEN`; `EV_SYN`/`SYN_REPORT` delimits complete pen
-frames. `BTN_TOOL_PEN` proximity drives Windows out-of-range/new-pointer
-transitions.
+`ABS_TILT_Y`, `BTN_TOOL_PEN`, and `BTN_TOOL_RUBBER`; `EV_SYN`/`SYN_REPORT`
+delimits complete pen frames. Tool proximity drives Windows
+out-of-range/new-pointer transitions. Rubber frames set Windows
+`PEN_FLAG_INVERTED | PEN_FLAG_ERASER`.
 
 Real `/dev/input/event1` capability capture on June 11, 2026 confirmed pressure
 `0..4095`, tilt X/Y `-9000..9000`, X `0..20966`, and Y `0..15725`. No rotation
 axis was exposed, so rotation must remain omitted rather than inferred.
+
+A 20-second live capture on June 12, 2026 measured 3,111 positive tip pressure
+samples spanning `1..4095` and 1,702 positive eraser samples spanning
+`184..2506`. Both tools now use contact threshold `200`; eraser pressure is
+independently normalized from `184..2506` to Windows `1..1024`.
 
 ### State Machine
 
@@ -307,7 +314,10 @@ can move or click the operator's real cursor; warn before manual injection tests
 4. **Windows pen acceptance remains partly manual.** Live hover/lift/stroke
    stability passed for 60 seconds. Pressure/tilt brush behavior, shutdown
    release, and Enigo fallback still need explicit application-level checks.
-5. **Dependency security matters.** Keep `Cargo.lock`, review `russh` and input
+5. **Eraser hardware validation is pending.** Automated event and packet tests
+   pass, but real `/dev/input/event1` must confirm `BTN_TOOL_RUBBER` from the
+   Marker Plus backside.
+6. **Dependency security matters.** Keep `Cargo.lock`, review `russh` and input
    crate updates, and run `cargo audit` when available.
 
 ## Safe Change Rules

@@ -6,8 +6,9 @@
 
 use clap::{Parser, ValueEnum};
 use remouseable::{
-    DEFAULT_TABLET_HEIGHT, DEFAULT_TABLET_PRESSURE_MAX, DEFAULT_TABLET_TILT_MAX,
-    DEFAULT_TABLET_WIDTH, DriverKind, HostDriver, NativeDriver, PenCalibration,
+    DEFAULT_ERASER_PRESSURE_MAX, DEFAULT_ERASER_PRESSURE_MIN, DEFAULT_TABLET_HEIGHT,
+    DEFAULT_TABLET_PRESSURE_MAX, DEFAULT_TABLET_TILT_MAX, DEFAULT_TABLET_WIDTH, DriverKind,
+    HostDriver, NativeDriver, PenCalibration,
     app::{
         Config, Orientation, debug_events, process_events, process_events_with_driver,
         process_pen_events_with_driver,
@@ -96,12 +97,20 @@ pub(crate) struct Args {
     orientation: OrientationArg,
 
     /// Pen pressure value considered contact.
-    #[arg(long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 200)]
     pressure_threshold: i32,
 
     /// Maximum raw tablet pressure value used for Windows pen normalization.
     #[arg(long, default_value_t = DEFAULT_TABLET_PRESSURE_MAX)]
     tablet_pressure_max: i32,
+
+    /// Minimum positive raw eraser pressure used for Windows normalization.
+    #[arg(long, default_value_t = DEFAULT_ERASER_PRESSURE_MIN)]
+    tablet_eraser_pressure_min: i32,
+
+    /// Maximum raw eraser pressure used for Windows normalization.
+    #[arg(long, default_value_t = DEFAULT_ERASER_PRESSURE_MAX)]
+    tablet_eraser_pressure_max: i32,
 
     /// Maximum absolute tablet tilt value used for Windows pen normalization.
     #[arg(long, default_value_t = DEFAULT_TABLET_TILT_MAX)]
@@ -159,6 +168,8 @@ pub(crate) struct Args {
 fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     PenCalibration {
         pressure_max: args.tablet_pressure_max,
+        eraser_pressure_min: args.tablet_eraser_pressure_min,
+        eraser_pressure_max: args.tablet_eraser_pressure_max,
         tilt_max: args.tablet_tilt_max,
         rotation_max: None,
     }
@@ -276,6 +287,8 @@ pub(crate) fn config(args: &Args, default_width: i32, default_height: i32) -> Co
         screen_height: args.screen_height.unwrap_or(default_height),
         pressure_threshold: args.pressure_threshold,
         tablet_pressure_max: args.tablet_pressure_max,
+        tablet_eraser_pressure_min: args.tablet_eraser_pressure_min,
+        tablet_eraser_pressure_max: args.tablet_eraser_pressure_max,
         tablet_tilt_max: args.tablet_tilt_max,
         disable_drag_event: args.disable_drag_event,
     }

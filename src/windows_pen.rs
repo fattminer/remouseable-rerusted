@@ -6,7 +6,7 @@
 // it under the terms of the GNU General Public License version 3 as published
 // by the Free Software Foundation.
 
-use crate::{PenDriver, PenInput, PenPhase};
+use crate::{PenDriver, PenInput, PenPhase, PenTool};
 use std::{
     io, ptr, thread,
     time::{Duration, Instant},
@@ -19,12 +19,13 @@ use windows_sys::Win32::{
             POINTER_FEEDBACK_NONE, POINTER_TYPE_INFO, POINTER_TYPE_INFO_0,
         },
         Input::Pointer::{
-            InjectSyntheticPointerInput, POINTER_FLAG_DOWN, POINTER_FLAG_INCONTACT,
-            POINTER_FLAG_INRANGE, POINTER_FLAG_NEW, POINTER_FLAG_UP, POINTER_FLAG_UPDATE,
-            POINTER_INFO, POINTER_PEN_INFO,
+            InjectSyntheticPointerInput, POINTER_FLAG_DOWN, POINTER_FLAG_FIRSTBUTTON,
+            POINTER_FLAG_INCONTACT, POINTER_FLAG_INRANGE, POINTER_FLAG_NEW, POINTER_FLAG_PRIMARY,
+            POINTER_FLAG_UP, POINTER_FLAG_UPDATE, POINTER_INFO, POINTER_PEN_INFO,
         },
         WindowsAndMessaging::{
-            PEN_MASK_PRESSURE, PEN_MASK_ROTATION, PEN_MASK_TILT_X, PEN_MASK_TILT_Y, PT_PEN,
+            PEN_FLAG_ERASER, PEN_FLAG_INVERTED, PEN_MASK_PRESSURE, PEN_MASK_ROTATION,
+            PEN_MASK_TILT_X, PEN_MASK_TILT_Y, PT_PEN,
         },
     },
 };
@@ -212,13 +213,15 @@ impl Drop for WindowsPenDriver {
 fn build_packet(input: PenInput, first: bool) -> POINTER_TYPE_INFO {
     let phase_flags = match input.phase {
         PenPhase::Hover | PenPhase::OutOfRange => POINTER_FLAG_UPDATE,
-        PenPhase::Down => POINTER_FLAG_DOWN | POINTER_FLAG_INCONTACT,
-        PenPhase::Contact => POINTER_FLAG_UPDATE | POINTER_FLAG_INCONTACT,
+        PenPhase::Down => POINTER_FLAG_DOWN | POINTER_FLAG_INCONTACT | POINTER_FLAG_FIRSTBUTTON,
+        PenPhase::Contact => {
+            POINTER_FLAG_UPDATE | POINTER_FLAG_INCONTACT | POINTER_FLAG_FIRSTBUTTON
+        }
         PenPhase::Up => POINTER_FLAG_UP,
     };
     let mut pointer_flags = phase_flags;
     if !matches!(input.phase, PenPhase::OutOfRange) {
-        pointer_flags |= POINTER_FLAG_INRANGE;
+        pointer_flags |= POINTER_FLAG_INRANGE | POINTER_FLAG_PRIMARY;
     }
     if first {
         pointer_flags |= POINTER_FLAG_NEW;
@@ -247,7 +250,10 @@ fn build_packet(input: PenInput, first: bool) -> POINTER_TYPE_INFO {
     };
     let pen_info = POINTER_PEN_INFO {
         pointerInfo: pointer_info,
-        penFlags: 0,
+        penFlags: match input.tool {
+            PenTool::Tip => 0,
+            PenTool::Eraser => PEN_FLAG_INVERTED | PEN_FLAG_ERASER,
+        },
         penMask: pen_mask,
         pressure: input.pressure,
         rotation: input.rotation.unwrap_or(0),
@@ -309,6 +315,7 @@ mod tests {
                 tilt_x: Some(-45),
                 tilt_y: Some(30),
                 rotation: None,
+                tool: PenTool::Tip,
                 phase: PenPhase::Down,
                 position_changed: true,
             },
@@ -322,6 +329,8 @@ mod tests {
         assert_eq!(pen.penMask & PEN_MASK_ROTATION, 0);
         assert_ne!(pen.penMask & PEN_MASK_PRESSURE, 0);
         assert_ne!(pen.pointerInfo.pointerFlags & POINTER_FLAG_DOWN, 0);
+        assert_ne!(pen.pointerInfo.pointerFlags & POINTER_FLAG_FIRSTBUTTON, 0);
+        assert_ne!(pen.pointerInfo.pointerFlags & POINTER_FLAG_PRIMARY, 0);
         assert_ne!(pen.pointerInfo.pointerFlags & POINTER_FLAG_NEW, 0);
     }
 
@@ -335,6 +344,7 @@ mod tests {
                 tilt_x: None,
                 tilt_y: Some(15),
                 rotation: None,
+                tool: PenTool::Tip,
                 phase: PenPhase::Hover,
                 position_changed: false,
             },
@@ -359,6 +369,7 @@ mod tests {
                 tilt_x: None,
                 tilt_y: None,
                 rotation: None,
+                tool: PenTool::Tip,
                 phase: PenPhase::Up,
                 position_changed: false,
             },
@@ -380,6 +391,7 @@ mod tests {
                 tilt_x: None,
                 tilt_y: None,
                 rotation: None,
+                tool: PenTool::Tip,
                 phase: PenPhase::OutOfRange,
                 position_changed: false,
             },
@@ -418,5 +430,27 @@ mod tests {
             Some(Duration::ZERO),
             Duration::from_millis(5)
         ));
+    }
+
+    #[test]
+    fn eraser_packet_marks_pen_inverted_and_erasing() {
+        let packet = build_packet(
+            PenInput {
+                x: 10,
+                y: 20,
+                pressure: 512,
+                tilt_x: None,
+                tilt_y: None,
+                rotation: None,
+                tool: PenTool::Eraser,
+                phase: PenPhase::Contact,
+                position_changed: true,
+            },
+            false,
+        );
+        let pen = unsafe { packet.Anonymous.penInfo };
+
+        assert_ne!(pen.penFlags & PEN_FLAG_INVERTED, 0);
+        assert_ne!(pen.penFlags & PEN_FLAG_ERASER, 0);
     }
 }

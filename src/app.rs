@@ -33,6 +33,8 @@ pub struct Config {
     pub screen_height: i32,
     pub pressure_threshold: i32,
     pub tablet_pressure_max: i32,
+    pub tablet_eraser_pressure_min: i32,
+    pub tablet_eraser_pressure_max: i32,
     pub tablet_tilt_max: i32,
     pub disable_drag_event: bool,
 }
@@ -248,6 +250,8 @@ pub fn process_pen_events_with_driver<R: Read, D: PenDriver<Error = io::Error>>(
     let scaler = AppScaler::from_config(config);
     let calibration = PenCalibration {
         pressure_max: config.tablet_pressure_max,
+        eraser_pressure_min: config.tablet_eraser_pressure_min,
+        eraser_pressure_max: config.tablet_eraser_pressure_max,
         tilt_max: config.tablet_tilt_max,
         rotation_max: None,
     };
@@ -317,6 +321,8 @@ mod tests {
                 screen_height: 200,
                 pressure_threshold: 1000,
                 tablet_pressure_max: 4095,
+                tablet_eraser_pressure_min: 184,
+                tablet_eraser_pressure_max: 2506,
                 tablet_tilt_max: 9000,
                 disable_drag_event: false,
             },

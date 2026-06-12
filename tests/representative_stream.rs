@@ -31,6 +31,8 @@ fn representative_stream_produces_expected_actions() {
             screen_height: 200,
             pressure_threshold: 1000,
             tablet_pressure_max: 4095,
+            tablet_eraser_pressure_min: 184,
+            tablet_eraser_pressure_max: 2506,
             tablet_tilt_max: 9000,
             disable_drag_event: false,
         },

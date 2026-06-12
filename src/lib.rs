@@ -21,8 +21,9 @@ pub use event::{
     event_type_name,
 };
 pub use pen::{
-    DEFAULT_TABLET_PRESSURE_MAX, DEFAULT_TABLET_TILT_MAX, EvdevPenFrameSource, PenCalibration,
-    PenDriver, PenInput, PenOrientation, PenPhase, PenRuntime, PenRuntimeError, PenSource,
+    DEFAULT_ERASER_PRESSURE_MAX, DEFAULT_ERASER_PRESSURE_MIN, DEFAULT_TABLET_PRESSURE_MAX,
+    DEFAULT_TABLET_TILT_MAX, EvdevPenFrameSource, PenCalibration, PenDriver, PenInput,
+    PenOrientation, PenPhase, PenRuntime, PenRuntimeError, PenSource, PenTool,
 };
 pub use runtime::{HostDriver, MouseButton, Runtime, RuntimeError};
 pub use scale::{
