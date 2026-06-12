@@ -7,6 +7,8 @@
 #[cfg(target_os = "windows")]
 use crate::windows_pen::WindowsPenDriver;
 use crate::{HostDriver, MouseButton, PenDriver, PenInput};
+#[cfg(target_os = "linux")]
+use crate::{PenPhase, PenTool};
 use display_info::DisplayInfo;
 use enigo::{Button, Coordinate, Direction, Enigo, Mouse, Settings};
 use std::{io, process::Command};
@@ -16,8 +18,8 @@ use std::{thread, time::Duration};
 
 #[cfg(target_os = "linux")]
 use evdev::{
-    AbsInfo, AbsoluteAxisCode, AttributeSet, EventType, InputEvent, KeyCode, RelativeAxisCode,
-    UinputAbsSetup, uinput::VirtualDevice,
+    AbsInfo, AbsoluteAxisCode, AttributeSet, EventType, InputEvent, KeyCode, PropType,
+    RelativeAxisCode, UinputAbsSetup, uinput::VirtualDevice,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -86,6 +88,8 @@ impl NativeDriver {
         monitor_id: Option<u32>,
         windows_pen_interval_ms: u64,
     ) -> io::Result<Self> {
+        #[cfg(not(target_os = "windows"))]
+        let _ = windows_pen_interval_ms;
         let display = selected_display(monitor_id)?;
         let screen_width = display.width;
         let screen_height = display.height;
@@ -109,8 +113,17 @@ impl NativeDriver {
             DriverKind::UinputTablet => {
                 #[cfg(target_os = "linux")]
                 {
-                    UinputTabletDriver::new(screen_width, screen_height)
-                        .map(NativeDriverInner::UinputTablet)
+                    match UinputTabletDriver::new(screen_width, screen_height) {
+                        Ok(driver) => Ok(NativeDriverInner::UinputTablet(driver)),
+                        Err(error) if kind == DriverKind::Auto => {
+                            eprintln!(
+                                "remouseable: warning: Wayland tablet injection unavailable ({error}); falling back to relative uinput mouse input"
+                            );
+                            UinputDriver::new(screen_width, screen_height)
+                                .map(NativeDriverInner::Uinput)
+                        }
+                        Err(error) => Err(error),
+                    }
                 }
                 #[cfg(not(target_os = "linux"))]
                 {
@@ -145,9 +158,20 @@ impl NativeDriver {
                 }
             }
         }?;
+        #[cfg(target_os = "linux")]
+        let screen_origin = if matches!(inner, NativeDriverInner::UinputTablet(_)) {
+            // Wayland maps tablet coordinates into compositor space. Desktop
+            // origins would exceed the virtual device's declared axis range.
+            (0, 0)
+        } else {
+            (display.x, display.y)
+        };
+        #[cfg(not(target_os = "linux"))]
+        let screen_origin = (display.x, display.y);
+
         Ok(Self {
             inner,
-            screen_origin: (display.x, display.y),
+            screen_origin,
             #[cfg(target_os = "windows")]
             screen_size: (screen_width, screen_height),
         })
@@ -155,11 +179,13 @@ impl NativeDriver {
 
     #[must_use]
     pub fn supports_pen(&self) -> bool {
-        #[cfg(target_os = "windows")]
-        return matches!(self.inner, NativeDriverInner::WindowsPen(_));
-
-        #[cfg(not(target_os = "windows"))]
-        false
+        match self.inner {
+            #[cfg(target_os = "windows")]
+            NativeDriverInner::WindowsPen(_) => true,
+            #[cfg(target_os = "linux")]
+            NativeDriverInner::UinputTablet(_) => true,
+            _ => false,
+        }
     }
 
     #[must_use]
@@ -342,19 +368,29 @@ fn resolve_driver_kind(kind: DriverKind) -> DriverKind {
     if kind != DriverKind::Auto {
         return kind;
     }
+    resolve_auto_driver()
+}
 
-    #[cfg(target_os = "linux")]
-    if std::env::var("XDG_SESSION_TYPE").is_ok_and(|value| value.eq_ignore_ascii_case("wayland")) {
-        return DriverKind::Uinput;
-    }
+#[cfg(target_os = "linux")]
+fn resolve_auto_driver() -> DriverKind {
+    resolve_linux_auto_driver(std::env::var("XDG_SESSION_TYPE").ok().as_deref())
+}
 
-    #[cfg(target_os = "windows")]
-    {
-        DriverKind::WindowsPen
-    }
+#[cfg(target_os = "windows")]
+const fn resolve_auto_driver() -> DriverKind {
+    DriverKind::WindowsPen
+}
 
-    #[cfg(not(target_os = "windows"))]
-    {
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+const fn resolve_auto_driver() -> DriverKind {
+    DriverKind::Enigo
+}
+
+#[cfg(target_os = "linux")]
+fn resolve_linux_auto_driver(session_type: Option<&str>) -> DriverKind {
+    if session_type.is_some_and(|value| value.eq_ignore_ascii_case("wayland")) {
+        DriverKind::UinputTablet
+    } else {
         DriverKind::Enigo
     }
 }
@@ -501,6 +537,8 @@ impl PenDriver for NativeDriver {
         match &mut self.inner {
             #[cfg(target_os = "windows")]
             NativeDriverInner::WindowsPen(driver) => driver.inject_pen(input),
+            #[cfg(target_os = "linux")]
+            NativeDriverInner::UinputTablet(driver) => driver.inject_pen(input),
             _ => {
                 let _ = input;
                 Err(io::Error::new(
@@ -766,36 +804,45 @@ pub struct UinputTabletDriver {
     screen_width: i32,
     screen_height: i32,
     touching: bool,
+    active_tool: Option<PenTool>,
     last_position: Option<(i32, i32)>,
 }
 
 #[cfg(target_os = "linux")]
 impl UinputTabletDriver {
     fn new(screen_width: i32, screen_height: i32) -> io::Result<Self> {
+        if screen_width <= 0 || screen_height <= 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "tablet screen dimensions must be positive",
+            ));
+        }
         let mut keys = AttributeSet::<KeyCode>::new();
         keys.insert(KeyCode::BTN_TOOL_PEN);
+        keys.insert(KeyCode::BTN_TOOL_RUBBER);
         keys.insert(KeyCode::BTN_TOUCH);
         keys.insert(KeyCode::BTN_STYLUS);
 
-        let x_axis = UinputAbsSetup::new(
-            AbsoluteAxisCode::ABS_X,
-            AbsInfo::new(0, 0, screen_width.saturating_sub(1), 0, 0, 0),
-        );
-        let y_axis = UinputAbsSetup::new(
-            AbsoluteAxisCode::ABS_Y,
-            AbsInfo::new(0, 0, screen_height.saturating_sub(1), 0, 0, 0),
-        );
-        let pressure_axis = UinputAbsSetup::new(
-            AbsoluteAxisCode::ABS_PRESSURE,
-            AbsInfo::new(0, 0, 2048, 0, 0, 0),
-        );
+        let mut properties = AttributeSet::<PropType>::new();
+        properties.insert(PropType::POINTER);
+
+        let [
+            x_axis,
+            y_axis,
+            pressure_axis,
+            horizontal_tilt_axis,
+            vertical_tilt_axis,
+        ] = tablet_axes(screen_width, screen_height);
 
         let device = VirtualDevice::builder()?
             .name("reMouseable Virtual Tablet")
+            .with_properties(&properties)?
             .with_keys(&keys)?
             .with_absolute_axis(&x_axis)?
             .with_absolute_axis(&y_axis)?
             .with_absolute_axis(&pressure_axis)?
+            .with_absolute_axis(&horizontal_tilt_axis)?
+            .with_absolute_axis(&vertical_tilt_axis)?
             .build()?;
 
         Ok(Self {
@@ -803,6 +850,7 @@ impl UinputTabletDriver {
             screen_width,
             screen_height,
             touching: false,
+            active_tool: None,
             last_position: None,
         })
     }
@@ -813,6 +861,145 @@ impl UinputTabletDriver {
             InputEvent::new(EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_X.0, x),
             InputEvent::new(EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_Y.0, y),
         ]
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn tablet_axes(screen_width: i32, screen_height: i32) -> [UinputAbsSetup; 5] {
+    [
+        UinputAbsSetup::new(
+            AbsoluteAxisCode::ABS_X,
+            AbsInfo::new(0, 0, screen_width.saturating_sub(1), 0, 0, 0),
+        ),
+        UinputAbsSetup::new(
+            AbsoluteAxisCode::ABS_Y,
+            AbsInfo::new(0, 0, screen_height.saturating_sub(1), 0, 0, 0),
+        ),
+        UinputAbsSetup::new(
+            AbsoluteAxisCode::ABS_PRESSURE,
+            AbsInfo::new(0, 0, 1024, 0, 0, 0),
+        ),
+        UinputAbsSetup::new(
+            AbsoluteAxisCode::ABS_TILT_X,
+            AbsInfo::new(0, -90, 90, 0, 0, 1),
+        ),
+        UinputAbsSetup::new(
+            AbsoluteAxisCode::ABS_TILT_Y,
+            AbsInfo::new(0, -90, 90, 0, 0, 1),
+        ),
+    ]
+}
+
+#[cfg(target_os = "linux")]
+const fn tablet_tool_key(tool: PenTool) -> KeyCode {
+    match tool {
+        PenTool::Tip => KeyCode::BTN_TOOL_PEN,
+        PenTool::Eraser => KeyCode::BTN_TOOL_RUBBER,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn tablet_pen_events(
+    input: PenInput,
+    active_tool: Option<PenTool>,
+    touching: bool,
+) -> Vec<InputEvent> {
+    let mut events = Vec::with_capacity(9);
+    let pressure = if matches!(input.phase, PenPhase::Down | PenPhase::Contact) {
+        i32::try_from(input.pressure.min(1_024)).unwrap_or(1_024)
+    } else {
+        0
+    };
+
+    if matches!(input.phase, PenPhase::OutOfRange) {
+        if touching {
+            events.push(InputEvent::new(EventType::KEY.0, KeyCode::BTN_TOUCH.0, 0));
+        }
+        events.push(InputEvent::new(
+            EventType::ABSOLUTE.0,
+            AbsoluteAxisCode::ABS_PRESSURE.0,
+            0,
+        ));
+        if let Some(tool) = active_tool {
+            events.push(InputEvent::new(
+                EventType::KEY.0,
+                tablet_tool_key(tool).0,
+                0,
+            ));
+        }
+        return events;
+    }
+
+    if let Some(tool) = active_tool.filter(|tool| *tool != input.tool) {
+        events.push(InputEvent::new(
+            EventType::KEY.0,
+            tablet_tool_key(tool).0,
+            0,
+        ));
+    }
+    events.push(InputEvent::new(
+        EventType::KEY.0,
+        tablet_tool_key(input.tool).0,
+        1,
+    ));
+    events.push(InputEvent::new(
+        EventType::ABSOLUTE.0,
+        AbsoluteAxisCode::ABS_X.0,
+        input.x,
+    ));
+    events.push(InputEvent::new(
+        EventType::ABSOLUTE.0,
+        AbsoluteAxisCode::ABS_Y.0,
+        input.y,
+    ));
+    if let Some(tilt_x) = input.tilt_x {
+        events.push(InputEvent::new(
+            EventType::ABSOLUTE.0,
+            AbsoluteAxisCode::ABS_TILT_X.0,
+            tilt_x.clamp(-90, 90),
+        ));
+    }
+    if let Some(tilt_y) = input.tilt_y {
+        events.push(InputEvent::new(
+            EventType::ABSOLUTE.0,
+            AbsoluteAxisCode::ABS_TILT_Y.0,
+            tilt_y.clamp(-90, 90),
+        ));
+    }
+    events.push(InputEvent::new(
+        EventType::ABSOLUTE.0,
+        AbsoluteAxisCode::ABS_PRESSURE.0,
+        pressure,
+    ));
+    events.push(InputEvent::new(
+        EventType::KEY.0,
+        KeyCode::BTN_TOUCH.0,
+        i32::from(pressure > 0),
+    ));
+    events
+}
+
+#[cfg(target_os = "linux")]
+impl PenDriver for UinputTabletDriver {
+    type Error = io::Error;
+
+    fn inject_pen(&mut self, mut input: PenInput) -> Result<(), Self::Error> {
+        input.x = input.x.clamp(0, self.screen_width.saturating_sub(1));
+        input.y = input.y.clamp(0, self.screen_height.saturating_sub(1));
+        let events = tablet_pen_events(input, self.active_tool, self.touching);
+        if !events.is_empty() {
+            self.device.emit(&events)?;
+        }
+        if matches!(input.phase, PenPhase::OutOfRange) {
+            self.active_tool = None;
+            self.touching = false;
+            self.last_position = None;
+        } else {
+            self.active_tool = Some(input.tool);
+            self.touching = matches!(input.phase, PenPhase::Down | PenPhase::Contact);
+            self.last_position = Some((input.x, input.y));
+        }
+        Ok(())
     }
 }
 
@@ -870,17 +1057,26 @@ impl HostDriver for UinputTabletDriver {
 #[cfg(target_os = "linux")]
 impl Drop for UinputTabletDriver {
     fn drop(&mut self) {
-        if self.touching {
-            let _ = self.device.emit(&[
-                InputEvent::new(EventType::KEY.0, KeyCode::BTN_TOUCH.0, 0),
-                InputEvent::new(EventType::ABSOLUTE.0, AbsoluteAxisCode::ABS_PRESSURE.0, 0),
-            ]);
+        let tool = self.active_tool.unwrap_or(PenTool::Tip);
+        let (x, y) = self.last_position.unwrap_or((0, 0));
+        let events = tablet_pen_events(
+            PenInput {
+                x,
+                y,
+                pressure: 0,
+                tilt_x: None,
+                tilt_y: None,
+                rotation: None,
+                tool,
+                phase: PenPhase::OutOfRange,
+                position_changed: false,
+            },
+            self.active_tool,
+            self.touching,
+        );
+        if !events.is_empty() {
+            let _ = self.device.emit(&events);
         }
-        let _ = self.device.emit(&[InputEvent::new(
-            EventType::KEY.0,
-            KeyCode::BTN_TOOL_PEN.0,
-            0,
-        )]);
     }
 }
 
@@ -940,6 +1136,167 @@ mod tests {
 #[cfg(all(test, target_os = "linux"))]
 mod linux_tests {
     use super::*;
+
+    fn pen_input(tool: PenTool, phase: PenPhase) -> PenInput {
+        PenInput {
+            x: 640,
+            y: 400,
+            pressure: 512,
+            tilt_x: Some(-45),
+            tilt_y: Some(30),
+            rotation: None,
+            tool,
+            phase,
+            position_changed: true,
+        }
+    }
+
+    fn event_value(events: &[InputEvent], event_type: EventType, code: u16) -> Option<i32> {
+        events
+            .iter()
+            .find(|event| event.event_type() == event_type && event.code() == code)
+            .map(InputEvent::value)
+    }
+
+    #[test]
+    fn tablet_contact_frame_contains_pressure_tilt_and_touch() {
+        let events = tablet_pen_events(pen_input(PenTool::Tip, PenPhase::Down), None, false);
+
+        assert_eq!(
+            event_value(&events, EventType::KEY, KeyCode::BTN_TOOL_PEN.0),
+            Some(1)
+        );
+        assert_eq!(
+            event_value(&events, EventType::KEY, KeyCode::BTN_TOUCH.0),
+            Some(1)
+        );
+        assert_eq!(
+            event_value(
+                &events,
+                EventType::ABSOLUTE,
+                AbsoluteAxisCode::ABS_PRESSURE.0
+            ),
+            Some(512)
+        );
+        assert_eq!(
+            event_value(&events, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_TILT_X.0),
+            Some(-45)
+        );
+        assert_eq!(
+            event_value(&events, EventType::ABSOLUTE, AbsoluteAxisCode::ABS_TILT_Y.0),
+            Some(30)
+        );
+    }
+
+    #[test]
+    fn wayland_auto_selects_native_tablet() {
+        assert_eq!(
+            resolve_linux_auto_driver(Some("wayland")),
+            DriverKind::UinputTablet
+        );
+        assert_eq!(
+            resolve_linux_auto_driver(Some("Wayland")),
+            DriverKind::UinputTablet
+        );
+        assert_eq!(resolve_linux_auto_driver(Some("x11")), DriverKind::Enigo);
+    }
+
+    #[test]
+    fn tablet_axes_expose_screen_pressure_and_tilt_ranges() {
+        let [x, y, pressure, tilt_x, tilt_y] = tablet_axes(1920, 1080);
+
+        assert_eq!(x.code(), AbsoluteAxisCode::ABS_X.0);
+        assert_eq!(x.absinfo().maximum(), 1919);
+        assert_eq!(y.code(), AbsoluteAxisCode::ABS_Y.0);
+        assert_eq!(y.absinfo().maximum(), 1079);
+        assert_eq!(pressure.absinfo().maximum(), 1024);
+        assert_eq!(tilt_x.absinfo().minimum(), -90);
+        assert_eq!(tilt_x.absinfo().maximum(), 90);
+        assert_eq!(tilt_y.absinfo().minimum(), -90);
+        assert_eq!(tilt_y.absinfo().maximum(), 90);
+    }
+
+    #[test]
+    fn tablet_eraser_frame_switches_tool_identity() {
+        let events = tablet_pen_events(
+            pen_input(PenTool::Eraser, PenPhase::Hover),
+            Some(PenTool::Tip),
+            false,
+        );
+
+        assert_eq!(
+            event_value(&events, EventType::KEY, KeyCode::BTN_TOOL_PEN.0),
+            Some(0)
+        );
+        assert_eq!(
+            event_value(&events, EventType::KEY, KeyCode::BTN_TOOL_RUBBER.0),
+            Some(1)
+        );
+        assert_eq!(
+            event_value(&events, EventType::KEY, KeyCode::BTN_TOUCH.0),
+            Some(0)
+        );
+        assert_eq!(
+            event_value(
+                &events,
+                EventType::ABSOLUTE,
+                AbsoluteAxisCode::ABS_PRESSURE.0
+            ),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn tablet_lift_ends_contact_but_keeps_tool_in_range() {
+        let events = tablet_pen_events(
+            pen_input(PenTool::Tip, PenPhase::Up),
+            Some(PenTool::Tip),
+            true,
+        );
+
+        assert_eq!(
+            event_value(&events, EventType::KEY, KeyCode::BTN_TOOL_PEN.0),
+            Some(1)
+        );
+        assert_eq!(
+            event_value(&events, EventType::KEY, KeyCode::BTN_TOUCH.0),
+            Some(0)
+        );
+        assert_eq!(
+            event_value(
+                &events,
+                EventType::ABSOLUTE,
+                AbsoluteAxisCode::ABS_PRESSURE.0
+            ),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn tablet_out_of_range_releases_touch_and_tool() {
+        let events = tablet_pen_events(
+            pen_input(PenTool::Eraser, PenPhase::OutOfRange),
+            Some(PenTool::Eraser),
+            true,
+        );
+
+        assert_eq!(
+            event_value(&events, EventType::KEY, KeyCode::BTN_TOUCH.0),
+            Some(0)
+        );
+        assert_eq!(
+            event_value(&events, EventType::KEY, KeyCode::BTN_TOOL_RUBBER.0),
+            Some(0)
+        );
+        assert_eq!(
+            event_value(
+                &events,
+                EventType::ABSOLUTE,
+                AbsoluteAxisCode::ABS_PRESSURE.0
+            ),
+            Some(0)
+        );
+    }
 
     #[test]
     fn uinput_relative_delta_uses_first_move_as_baseline() {

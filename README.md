@@ -4,8 +4,8 @@ Use a reMarkable tablet stylus as a host-computer mouse.
 
 reMouseable connects to the tablet over SSH, reads Linux Evdev events, maps
 stylus coordinates to the active display, and emits native mouse movement,
-click, and drag actions. The application is written in Rust and provides a
-Slint graphical interface plus a terminal mode.
+click, drag, or pen-tablet actions. The application is written in Rust and
+provides a Slint graphical interface plus a terminal mode.
 
 ## Status
 
@@ -18,7 +18,9 @@ The Rust application supports:
   Marker Plus eraser-side support.
 - Windows Enigo mouse fallback and macOS mouse injection through Enigo.
 - Linux X11 mouse injection through Enigo.
-- Linux Wayland mouse injection through a `uinput` virtual mouse.
+- Linux Wayland tablet injection through `uinput`, including continuous
+  pressure, X/Y tilt, proximity, and eraser-side tool identity.
+- Linux Wayland relative-mouse fallback when virtual tablet creation fails.
 - `right`, `left`, and `vertical` tablet orientations.
 - Deterministic local event-stream processing for development and testing.
 
@@ -118,7 +120,8 @@ Only absolute, shell-safe remote event paths are accepted.
 
 `--host-driver=auto` selects:
 
-- `uinput` on Linux Wayland.
+- `uinput-tablet` on Linux Wayland, falling back to relative `uinput` mouse
+  injection with a warning when virtual tablet creation fails.
 - `windows-pen` on Windows, falling back to `enigo` with a warning when native
   pen creation is unavailable.
 - `enigo` on macOS and Linux X11.
@@ -126,8 +129,9 @@ Only absolute, shell-safe remote event paths are accepted.
 Available values are `auto`, `enigo`, `uinput`, `uinput-tablet`, and
 `windows-pen`. Explicit `windows-pen` returns an actionable error instead of
 falling back. It requires Windows 10 version 1809 or newer.
-`uinput-tablet` is experimental and is not the default because absolute-tablet
-behavior was unreliable during Hyprland testing.
+Explicit `uinput-tablet` creates a native Linux tablet device and returns an
+actionable error instead of falling back. Explicit `uinput` keeps the
+mouse-compatible relative backend for compositor troubleshooting.
 
 The verified reMarkable tip pressure range is `0..4095`; a June 12, 2026 live
 capture measured the Marker Plus eraser at positive values `184..2506`. Tilt is
@@ -136,7 +140,7 @@ threshold of `200`. Override calibration only for hardware reporting different
 ranges:
 
 ```shell
-remouseable --tui --host-driver=windows-pen \
+remouseable --tui --host-driver=auto \
   --tablet-pressure-max=4095 \
   --tablet-eraser-pressure-min=184 \
   --tablet-eraser-pressure-max=2506 \
@@ -147,9 +151,10 @@ The tested event device exposes no barrel-rotation axis, so reMouseable does
 not synthesize rotation. Pressure and tilt availability depends on tablet
 firmware and the selected event device.
 
-The eraser side uses the standard Linux `BTN_TOOL_RUBBER` event and is injected
-on Windows as an inverted eraser pen. Support depends on the pen and tablet
-firmware exposing that event on the selected event device.
+The eraser side uses `BTN_TOOL_RUBBER`. It is preserved as a Linux eraser tool
+on Wayland and injected on Windows as an inverted eraser pen. Support depends
+on the pen and tablet firmware exposing that event on the selected event
+device.
 
 On Windows, the GUI lists every attached monitor and maps tablet coordinates to
 the selected display. Terminal users can select the same display by numeric ID
@@ -166,6 +171,10 @@ On Hyprland, reMouseable reads the focused monitor's logical dimensions from
 ```shell
 remouseable --tui --screen-width=1280 --screen-height=800
 ```
+
+Wayland compositors decide how a tablet device maps to outputs. reMouseable
+declares absolute axes for the detected logical display size, but compositor
+tablet-mapping settings may still be needed for multi-monitor layouts.
 
 ## Local Event Streams
 
@@ -229,9 +238,12 @@ Grant the launching terminal or application Accessibility permission under
 
 ### Linux
 
-X11 uses Enigo. Wayland uses `/dev/uinput` by default. Configure an appropriate
-udev rule or group membership so the current user can open `/dev/uinput`; avoid
-running the entire application as root when a narrower permission is possible.
+X11 uses Enigo. Wayland creates a native `/dev/uinput` tablet by default and
+falls back to a relative virtual mouse if tablet creation fails. The tablet
+reports pressure `0..1024`, tilt `-90..90`, tip/eraser proximity, touch, and
+absolute position. Configure an appropriate udev rule or group membership so
+the current user can open `/dev/uinput`; avoid running the entire application
+as root when a narrower permission is possible.
 
 ## Architecture
 

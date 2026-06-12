@@ -129,7 +129,8 @@ cryptographic dependency resolution is sensitive.
 - [x] Add Linux Wayland relative `uinput` backend.
 - [x] Add Hyprland focused-monitor logical-size detection.
 - [x] Chunk relative movement to avoid compositor/libinput delta limits.
-- [x] Add experimental absolute `uinput-tablet` backend.
+- [x] Promote absolute `uinput-tablet` to Wayland auto mode with relative fallback.
+- [x] Preserve pressure, X/Y tilt, proximity, touch, and eraser tool identity.
 - [ ] Test macOS, especially drag semantics.
 - [ ] Test Linux X11 with real tablet.
 - [ ] Test additional Wayland compositors.
@@ -190,9 +191,11 @@ opt-in for compatibility and should become secure by default.
 
 ### Wayland
 
-Wayland support uses Linux `uinput`. Hyprland has partial validation; broader
-compositor coverage, permission documentation, and multi-monitor behavior remain
-open.
+Wayland auto mode creates a native Linux `uinput` tablet and falls back to the
+validated relative virtual mouse when tablet creation fails. Automated tests
+cover pressure, X/Y tilt, proximity, touch, eraser switching, and cleanup.
+Real-device drawing behavior, broader compositor coverage, permission
+documentation, and multi-monitor mapping remain open.
 
 ### Windows Pen Semantics
 
@@ -232,7 +235,8 @@ updates, run `cargo audit`, and validate Windows with a complete MSVC/SDK setup.
 | 2026-06-04 | Preserve insecure host-key default temporarily | Compatibility while offering warning and known-hosts upgrade path |
 | 2026-06-04 | Optimize hot path without coalescing | Reduce latency without losing pressure transitions |
 | 2026-06-05 | Add Linux Wayland `uinput` backend | Enigo/X11 injection is unreliable on Wayland |
-| 2026-06-05 | Auto-select `uinput` only on Linux Wayland | Preserve Windows, macOS, and X11 behavior |
+| 2026-06-05 | Auto-select Linux `uinput` on Wayland | Preserve Windows, macOS, and X11 behavior |
+| 2026-06-12 | Prefer native `uinput-tablet` on Wayland with relative fallback | Preserve pressure, tilt, proximity, and eraser semantics without losing compatibility |
 | 2026-06-05 | Chunk relative `uinput` movement | Avoid compositor/libinput large-delta limitations |
 | 2026-06-11 | Treat Rust as source of truth | Go implementation is absent; migration history remains documentation only |
 | 2026-06-11 | Keep handoff and migration notes | They preserve hardware findings, risks, decisions, and acceptance context |

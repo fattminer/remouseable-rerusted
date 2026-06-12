@@ -35,7 +35,7 @@ Current targets:
 - Windows through synthetic pen injection, with Enigo fallback.
 - macOS Intel and Apple Silicon through Enigo.
 - Linux X11 through Enigo.
-- Linux Wayland through a relative `uinput` virtual mouse.
+- Linux Wayland through a native `uinput` tablet, with relative-mouse fallback.
 
 The default launch opens a Slint GUI. `--tui` keeps terminal prompts, diagnostic
 output, and local fixture processing available.
@@ -84,9 +84,10 @@ not necessarily a project code defect.
 - Right, left, and vertical coordinate scaling.
 - Native hover, left-button press, drag, and release behavior.
 - Slint GUI with cooperative stream cancellation.
-- Linux Wayland relative `uinput` backend.
+- Linux Wayland native `uinput` tablet with continuous pressure, X/Y tilt,
+  proximity, touch, and eraser tool identity.
+- Linux Wayland relative `uinput` fallback when tablet creation fails.
 - Hyprland focused-monitor logical-size detection.
-- Experimental Linux absolute `uinput-tablet` backend.
 - Windows synthetic pen backend with continuous pressure, X/Y tilt, and
   eraser-side injection.
 - Windows monitor enumeration and per-monitor pen coordinate mapping.
@@ -111,6 +112,7 @@ Not yet broadly validated:
 - macOS native behavior, especially drag semantics.
 - Linux X11 real-device behavior.
 - Wayland compositors beyond Hyprland.
+- Linux native tablet pressure, tilt, eraser, and compositor output mapping.
 - General multi-monitor behavior outside the validated Windows pen path.
 - Windows synthetic pen behavior in a Windows Ink-aware drawing application.
 
@@ -227,7 +229,8 @@ Named pen codes include `ABS_X`, `ABS_Y`, `ABS_PRESSURE`, `ABS_TILT_X`,
 `ABS_TILT_Y`, `BTN_TOOL_PEN`, and `BTN_TOOL_RUBBER`; `EV_SYN`/`SYN_REPORT`
 delimits complete pen frames. Tool proximity drives Windows
 out-of-range/new-pointer transitions. Rubber frames set Windows
-`PEN_FLAG_INVERTED | PEN_FLAG_ERASER`.
+`PEN_FLAG_INVERTED | PEN_FLAG_ERASER`; Linux tablet frames use
+`BTN_TOOL_RUBBER` directly.
 
 Real `/dev/input/event1` capability capture on June 11, 2026 confirmed pressure
 `0..4095`, tilt X/Y `-9000..9000`, X `0..20966`, and Y `0..15725`. No rotation
@@ -266,8 +269,9 @@ release operations through the `HostDriver` trait.
 - Enigo absolute mouse driver for Windows, macOS, and Linux X11.
 - Windows synthetic `PT_PEN` driver on Windows 10 version 1809 or newer.
 - Attached-monitor enumeration with virtual-screen-relative Windows origins.
-- Linux relative `uinput` mouse driver used by Wayland `auto` mode.
-- Experimental Linux absolute `uinput-tablet` driver.
+- Linux absolute `uinput-tablet` pen driver used by Wayland `auto` mode. It
+  emits normalized pressure, tilt, tip/eraser proximity, touch, and position.
+- Linux relative `uinput` mouse fallback when tablet creation fails.
 
 The drivers release a held left button during shutdown.
 
@@ -317,7 +321,10 @@ can move or click the operator's real cursor; warn before manual injection tests
 5. **Eraser hardware validation is pending.** Automated event and packet tests
    pass, but real `/dev/input/event1` must confirm `BTN_TOOL_RUBBER` from the
    Marker Plus backside.
-6. **Dependency security matters.** Keep `Cargo.lock`, review `russh` and input
+6. **Linux tablet acceptance is pending.** Event-shape tests cover pressure,
+   tilt, eraser switching, lift, and out-of-range cleanup, but a real Wayland
+   session must validate drawing-application behavior and output mapping.
+7. **Dependency security matters.** Keep `Cargo.lock`, review `russh` and input
    crate updates, and run `cargo audit` when available.
 
 ## Safe Change Rules
@@ -352,7 +359,8 @@ can move or click the operator's real cursor; warn before manual injection tests
 - [x] Windows release build and local live smoke test pass with MSVC Build Tools.
 - [ ] macOS Intel/ARM builds and real-device smoke tests pass.
 - [ ] Linux X11 build and real-device smoke test pass.
-- [x] Linux Wayland/Hyprland basic scaling has real-device validation.
+- [x] Linux Wayland/Hyprland relative fallback scaling has real-device validation.
+- [ ] Linux Wayland native tablet pressure, tilt, and eraser pass real-device validation.
 - [ ] Additional Wayland compositor and multi-monitor tests pass.
 - [x] Remote event path rejects shell injection.
 - [ ] SSH host verification becomes secure by default with usable onboarding.

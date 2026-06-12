@@ -100,19 +100,19 @@ pub(crate) struct Args {
     #[arg(long, default_value_t = 200)]
     pressure_threshold: i32,
 
-    /// Maximum raw tablet pressure value used for Windows pen normalization.
+    /// Maximum raw tablet pressure value used for native pen normalization.
     #[arg(long, default_value_t = DEFAULT_TABLET_PRESSURE_MAX)]
     tablet_pressure_max: i32,
 
-    /// Minimum positive raw eraser pressure used for Windows normalization.
+    /// Minimum positive raw eraser pressure used for native pen normalization.
     #[arg(long, default_value_t = DEFAULT_ERASER_PRESSURE_MIN)]
     tablet_eraser_pressure_min: i32,
 
-    /// Maximum raw eraser pressure used for Windows normalization.
+    /// Maximum raw eraser pressure used for native pen normalization.
     #[arg(long, default_value_t = DEFAULT_ERASER_PRESSURE_MAX)]
     tablet_eraser_pressure_max: i32,
 
-    /// Maximum absolute tablet tilt value used for Windows pen normalization.
+    /// Maximum absolute tablet tilt value used for native pen normalization.
     #[arg(long, default_value_t = DEFAULT_TABLET_TILT_MAX)]
     tablet_tilt_max: i32,
 
