@@ -13,7 +13,6 @@ updated: 2026-06-11
 - [Repository README](../README.md)
 - [Rust package manifest](../Cargo.toml)
 - [[Projects/reMouseable AI Handoff|AI Handoff]]
-- [[Projects/reMouseable Rust Migration|Rust Migration]]
 
 ## Implementation
 

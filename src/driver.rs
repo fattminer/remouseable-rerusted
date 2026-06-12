@@ -43,6 +43,7 @@ pub struct MonitorInfo {
 pub struct NativeDriver {
     inner: NativeDriverInner,
     screen_origin: (i32, i32),
+    #[cfg(target_os = "windows")]
     screen_size: (i32, i32),
 }
 
@@ -147,6 +148,7 @@ impl NativeDriver {
         Ok(Self {
             inner,
             screen_origin: (display.x, display.y),
+            #[cfg(target_os = "windows")]
             screen_size: (screen_width, screen_height),
         })
     }
@@ -495,10 +497,10 @@ impl HostDriver for NativeDriver {
 impl PenDriver for NativeDriver {
     type Error = io::Error;
 
-    fn inject_pen(&mut self, input: PenInput) -> Result<(), Self::Error> {
+    fn inject_pen(&mut self, _input: PenInput) -> Result<(), Self::Error> {
         match &mut self.inner {
             #[cfg(target_os = "windows")]
-            NativeDriverInner::WindowsPen(driver) => driver.inject_pen(input),
+            NativeDriverInner::WindowsPen(driver) => driver.inject_pen(_input),
             _ => Err(io::Error::new(
                 io::ErrorKind::Unsupported,
                 "selected host driver does not support pen frames",
@@ -895,6 +897,7 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "windows")]
     fn positioned_monitor(id: u32, x: i32, y: i32) -> MonitorInfo {
         MonitorInfo {
             x,

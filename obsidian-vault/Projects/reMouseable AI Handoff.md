@@ -19,9 +19,8 @@ priority: high
 # reMouseable AI Handoff
 
 > [!important] Purpose
-> Primary onboarding document for future human or AI agents. Read this note and
-> [[reMouseable Rust Migration]] before changing code. Always verify this note
-> against current repository state.
+> Primary onboarding document for future human or AI agents. Read this note
+> before changing code and verify it against current repository state.
 
 ## Executive Summary
 
@@ -43,10 +42,9 @@ output, and local fixture processing available.
 
 ## Origins
 
-This repository is a Rust rewrite of Kevin Conway's original
+This repository derives from Kevin Conway's original
 [reMouseable](https://github.com/kevinconway/remouseable) project. Preserve
-attribution and GPL-3.0 licensing. Historical Go behavior remains relevant when
-explaining compatibility decisions, but the current source tree is Rust.
+attribution and GPL-3.0 licensing.
 
 ## Repository Snapshot
 
@@ -301,20 +299,15 @@ can move or click the operator's real cursor; warn before manual injection tests
 1. **SSH host verification is opt-in.** Without `--ssh-known-hosts`, the app
    warns and accepts the host for compatibility. Secure-by-default onboarding
    remains open.
-2. **Cross-platform release automation is stale.** GitHub workflows still
-   contain obsolete Go jobs and release commands. Replace them with Rust builds
-   before relying on CI releases.
-3. **Devcontainer is stale.** It still uses a Go image/extensions and must be
-   converted before being documented as supported Rust setup.
-4. **Multi-monitor behavior is platform-specific.** Windows pen monitor
+2. **Multi-monitor behavior is platform-specific.** Windows pen monitor
    selection and virtual-screen offsets are validated. Hyprland uses the
    focused-monitor size; explicit selection is not general on other platforms.
-5. **Platform acceptance is incomplete.** macOS, Linux X11, and additional
+3. **Platform acceptance is incomplete.** macOS, Linux X11, and additional
    Wayland compositors need real-device smoke tests.
-6. **Windows pen acceptance remains partly manual.** Live hover/lift/stroke
+4. **Windows pen acceptance remains partly manual.** Live hover/lift/stroke
    stability passed for 60 seconds. Pressure/tilt brush behavior, shutdown
    release, and Enigo fallback still need explicit application-level checks.
-7. **Dependency security matters.** Keep `Cargo.lock`, review `russh` and input
+5. **Dependency security matters.** Keep `Cargo.lock`, review `russh` and input
    crate updates, and run `cargo audit` when available.
 
 ## Safe Change Rules
@@ -330,7 +323,7 @@ can move or click the operator's real cursor; warn before manual injection tests
 
 ## Agent Startup Checklist
 
-- [ ] Read this note and [[reMouseable Rust Migration]].
+- [ ] Read this note.
 - [ ] Run `git status --short`; preserve unrelated user changes.
 - [ ] Read `README.md`, `Cargo.toml`, and files relevant to requested work.
 - [ ] Inspect recent commits.
@@ -357,7 +350,6 @@ can move or click the operator's real cursor; warn before manual injection tests
 
 ## Related Notes
 
-- [[reMouseable Rust Migration]]
 - [[000 - Project Index|Project Index]]
 
 ## External References
