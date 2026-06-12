@@ -1,4 +1,4 @@
-import { VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { VerticalBox, HorizontalBox, Slider } from "std-widgets.slint";
 
 // Text inputs use a custom wrapper so text and placeholder colors remain readable
 // across Slint themes and OS palette choices.
@@ -305,6 +305,7 @@ export component RemouseableWindow inherits Window {
     in property <[string]> monitor-options;
     in-out property <int> monitor-index: 0;
     in property <bool> show-monitor-selector: false;
+    in-out property <float> windows-pen-interval-ms: 5;
     in-out property <string> pressure-threshold: "1000";
     in-out property <bool> disable-drag-event: false;
     in-out property <bool> running: false;
@@ -312,7 +313,7 @@ export component RemouseableWindow inherits Window {
 
     // Rust handles long-running work. Slint only emits user intent with current
     // control values.
-    callback start-requested(string, string, string, string, string, string, int, string, bool);
+    callback start-requested(string, string, string, string, string, string, int, float, string, bool);
     callback stop-requested();
 
     background: #09090b;
@@ -362,6 +363,7 @@ export component RemouseableWindow inherits Window {
                         root.orientation,
                         root.host-driver,
                         root.monitor-index,
+                        root.windows-pen-interval-ms,
                         root.pressure-threshold,
                         root.disable-drag-event,
                     );
@@ -393,6 +395,25 @@ export component RemouseableWindow inherits Window {
             visible: root.show-monitor-selector && (root.host-driver == "auto" || root.host-driver == "windows-pen");
             Text { text: "Input mapping monitor"; color: #d4d4d8; }
             MonitorCombo { options: root.monitor-options; selected-index <=> root.monitor-index; }
+        }
+
+        VerticalBox {
+            visible: root.show-monitor-selector && (root.host-driver == "auto" || root.host-driver == "windows-pen");
+            Text {
+                text: "Windows pen update interval: " + round(root.windows-pen-interval-ms) + " ms";
+                color: #d4d4d8;
+            }
+            Slider {
+                minimum: 1;
+                maximum: 20;
+                step: 1;
+                value <=> root.windows-pen-interval-ms;
+            }
+            Text {
+                text: "Lower values improve accuracy and latency but increase CPU/input load and may reduce stability. Higher values reduce load but add latency.";
+                color: #a1a1aa;
+                wrap: word-wrap;
+            }
         }
 
         Text { text: "Pressure threshold"; color: #d4d4d8; }
@@ -432,6 +453,7 @@ export component RemouseableWindow inherits Window {
                             root.orientation,
                             root.host-driver,
                             root.monitor-index,
+                            root.windows-pen-interval-ms,
                             root.pressure-threshold,
                             root.disable-drag-event,
                         );

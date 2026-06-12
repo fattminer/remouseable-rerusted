@@ -60,6 +60,9 @@ pub fn run_ui(args: &Args) -> Result<(), Box<dyn Error>> {
     ui.set_monitor_options(ModelRc::new(VecModel::from(monitor_labels)));
     ui.set_monitor_index(i32::try_from(selected_monitor).unwrap_or(0));
     ui.set_show_monitor_selector(cfg!(target_os = "windows"));
+    ui.set_windows_pen_interval_ms(
+        u16::try_from(args.windows_pen_interval_ms).map_or(5.0, f32::from),
+    );
 
     // Keep CLI defaults as the base configuration. Start callback values
     // override only fields the UI exposes.
@@ -78,6 +81,7 @@ pub fn run_ui(args: &Args) -> Result<(), Box<dyn Error>> {
               orientation,
               host_driver,
               monitor_index,
+              windows_pen_interval_ms,
               pressure_threshold,
               disable_drag_event| {
             // A fresh token belongs to one launched worker. Existing token means
@@ -103,6 +107,7 @@ pub fn run_ui(args: &Args) -> Result<(), Box<dyn Error>> {
                     .ok()
                     .and_then(|index| monitors.get(index))
                     .map(|monitor| monitor.id),
+                windows_pen_interval_ms: slider_interval_ms(windows_pen_interval_ms),
                 pressure_threshold: pressure_threshold.to_string(),
                 disable_drag_event,
             };
@@ -143,6 +148,13 @@ pub fn run_ui(args: &Args) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn slider_interval_ms(value: f32) -> u64 {
+    let rounded = value.round().clamp(1.0, 20.0);
+    (1_u16..=20)
+        .find(|candidate| (f32::from(*candidate) - rounded).abs() < f32::EPSILON)
+        .map_or(5, u64::from)
+}
+
 /// Values captured from the Slint callback at Start time.
 struct UiLaunchArgs {
     ssh_ip: String,
@@ -152,6 +164,7 @@ struct UiLaunchArgs {
     orientation: String,
     host_driver: String,
     monitor_id: Option<u32>,
+    windows_pen_interval_ms: u64,
     pressure_threshold: String,
     disable_drag_event: bool,
 }
@@ -169,6 +182,7 @@ fn run_live_from_ui(
     args.orientation = parse_orientation(&launch.orientation)?;
     args.host_driver = parse_host_driver(&launch.host_driver)?;
     args.monitor_id = launch.monitor_id;
+    args.windows_pen_interval_ms = launch.windows_pen_interval_ms;
     args.pressure_threshold = launch.pressure_threshold.trim().parse().map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -178,7 +192,11 @@ fn run_live_from_ui(
     args.disable_drag_event = launch.disable_drag_event;
 
     let event_file = super::event_file_or_prompt(args.event_file.as_deref())?;
-    let driver = NativeDriver::new_for_monitor(args.host_driver.into(), args.monitor_id)?;
+    let driver = NativeDriver::new_for_monitor(
+        args.host_driver.into(),
+        args.monitor_id,
+        args.windows_pen_interval_ms,
+    )?;
     let (detected_width, detected_height) = driver.screen_size()?;
 
     // The SSH reader watches this token and reports EOF when Stop is requested.
@@ -265,4 +283,17 @@ fn default_known_hosts() -> Option<PathBuf> {
         .map(PathBuf::from)
         .map(|home| home.join(".ssh").join("known_hosts"))
         .filter(|path| path.exists())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::slider_interval_ms;
+
+    #[test]
+    fn slider_interval_rounds_and_clamps_to_supported_range() {
+        assert_eq!(slider_interval_ms(0.0), 1);
+        assert_eq!(slider_interval_ms(4.6), 5);
+        assert_eq!(slider_interval_ms(20.0), 20);
+        assert_eq!(slider_interval_ms(99.0), 20);
+    }
 }

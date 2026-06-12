@@ -146,6 +146,12 @@ On Windows, the GUI lists every attached monitor and maps tablet coordinates to
 the selected display. Terminal users can select the same display by numeric ID
 with `--monitor-id`.
 
+The Windows pen update interval is adjustable from `1` to `20` milliseconds in
+the GUI, with a default of `5` ms (about 200 Hz). Lower values reduce latency
+and preserve more samples but increase CPU/input load and may reduce stability.
+Higher values reduce load but add latency. Terminal users can set
+`--windows-pen-interval-ms`.
+
 On Hyprland, reMouseable reads the focused monitor's logical dimensions from
 `hyprctl monitors -j`. Override display detection when necessary:
 
@@ -190,6 +196,7 @@ options include:
 | `--screen-width <VALUE>` | Override detected host display width |
 | `--screen-height <VALUE>` | Override detected host display height |
 | `--monitor-id <ID>` | Select attached monitor for Windows pen mapping |
+| `--windows-pen-interval-ms <MS>` | Set Windows pen update interval from `1` to `20`; default `5` |
 | `--event-file <PATH>` | Select remote event device |
 | `--ssh-ip <HOST:PORT>` | Set tablet SSH address; default `10.11.99.1:22` |
 | `--ssh-user <USER>` | Set tablet SSH user; default `root` |

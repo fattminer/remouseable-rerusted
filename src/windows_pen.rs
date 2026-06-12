@@ -35,10 +35,18 @@ pub struct WindowsPenDriver {
     contacting: bool,
     last_input: Option<PenInput>,
     last_injection: Option<Instant>,
+    last_update_injection: Option<Instant>,
+    update_interval: Duration,
 }
 
 impl WindowsPenDriver {
-    pub fn new() -> io::Result<Self> {
+    pub fn new(update_interval_ms: u64) -> io::Result<Self> {
+        if !(1..=20).contains(&update_interval_ms) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Windows pen update interval must be between 1 and 20 milliseconds",
+            ));
+        }
         let device = unsafe { CreateSyntheticPointerDevice(PT_PEN, 1, POINTER_FEEDBACK_NONE) };
         if device.is_null() {
             return Err(last_error("creating Windows synthetic pen device"));
@@ -49,6 +57,8 @@ impl WindowsPenDriver {
             contacting: false,
             last_input: None,
             last_injection: None,
+            last_update_injection: None,
+            update_interval: Duration::from_millis(update_interval_ms),
         })
     }
 
@@ -88,6 +98,13 @@ impl WindowsPenDriver {
         if !self.contacting && matches!(input.phase, PenPhase::Contact) {
             input.phase = PenPhase::Down;
         }
+        if should_coalesce_update(
+            input.phase,
+            self.last_update_injection.map(|last| last.elapsed()),
+            self.update_interval,
+        ) {
+            return Ok(());
+        }
         self.inject_one(input, false)?;
 
         // Windows requires the next DOWN to transition from HOVER, but a tablet
@@ -126,6 +143,9 @@ impl WindowsPenDriver {
             )
         })?;
         self.last_injection = Some(Instant::now());
+        if matches!(input.phase, PenPhase::Hover | PenPhase::Contact) {
+            self.last_update_injection = self.last_injection;
+        }
         self.started = true;
         self.contacting = matches!(input.phase, PenPhase::Down | PenPhase::Contact);
         self.last_input = Some(input);
@@ -133,12 +153,21 @@ impl WindowsPenDriver {
     }
 }
 
-fn inject_packet(device: HSYNTHETICPOINTERDEVICE, packet: &POINTER_TYPE_INFO) -> io::Result<()> {
+fn should_coalesce_update(
+    phase: PenPhase,
+    elapsed: Option<Duration>,
+    update_interval: Duration,
+) -> bool {
+    matches!(phase, PenPhase::Hover | PenPhase::Contact)
+        && elapsed.is_some_and(|elapsed| elapsed < update_interval)
+}
+
+fn inject_packet(device: HSYNTHETICPOINTERDEVICE, packet: &POINTER_TYPE_INFO) -> io::Result<usize> {
     const MAX_NOT_READY_RETRIES: usize = 20;
     for retry in 0..=MAX_NOT_READY_RETRIES {
         let success = unsafe { InjectSyntheticPointerInput(device, ptr::from_ref(packet), 1) };
         if success != 0 {
-            return Ok(());
+            return Ok(retry);
         }
         let error = unsafe { GetLastError() };
         let transient = error == ERROR_NOT_READY || error == ERROR_INVALID_PARAMETER;
@@ -360,5 +389,34 @@ mod tests {
 
         assert_ne!(pen.pointerInfo.pointerFlags & POINTER_FLAG_UPDATE, 0);
         assert_eq!(pen.pointerInfo.pointerFlags & POINTER_FLAG_INRANGE, 0);
+    }
+
+    #[test]
+    fn coalesces_only_high_frequency_update_frames() {
+        assert!(should_coalesce_update(
+            PenPhase::Hover,
+            Some(Duration::from_millis(2)),
+            Duration::from_millis(5)
+        ));
+        assert!(should_coalesce_update(
+            PenPhase::Contact,
+            Some(Duration::from_millis(4)),
+            Duration::from_millis(5)
+        ));
+        assert!(!should_coalesce_update(
+            PenPhase::Contact,
+            Some(Duration::from_millis(5)),
+            Duration::from_millis(5)
+        ));
+        assert!(!should_coalesce_update(
+            PenPhase::Down,
+            Some(Duration::ZERO),
+            Duration::from_millis(5)
+        ));
+        assert!(!should_coalesce_update(
+            PenPhase::Up,
+            Some(Duration::ZERO),
+            Duration::from_millis(5)
+        ));
     }
 }

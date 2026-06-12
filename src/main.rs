@@ -119,6 +119,10 @@ pub(crate) struct Args {
     #[arg(long)]
     monitor_id: Option<u32>,
 
+    /// Windows pen hover/contact update interval in milliseconds.
+    #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=20))]
+    windows_pen_interval_ms: u64,
+
     /// Tablet coordinate height.
     #[arg(long, default_value_t = DEFAULT_TABLET_HEIGHT)]
     tablet_height: i32,
@@ -201,7 +205,11 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     // Live mode injects native mouse events. Local mode writes JSON actions so
     // event processing can be tested without moving the cursor.
     if is_live {
-        let driver = NativeDriver::new_for_monitor(args.host_driver.into(), args.monitor_id)?;
+        let driver = NativeDriver::new_for_monitor(
+            args.host_driver.into(),
+            args.monitor_id,
+            args.windows_pen_interval_ms,
+        )?;
         let (detected_width, detected_height) = driver.screen_size()?;
         let config = config(args, detected_width, detected_height);
         if driver.supports_pen() {
@@ -358,6 +366,7 @@ mod tests {
             "--screen-height=1440",
             "--screen-width=2560",
             "--monitor-id=42",
+            "--windows-pen-interval-ms=7",
             "--ssh-ip=remarkable.local:2222",
             "--ssh-password=secret",
             "--ssh-socket=/tmp/agent.sock",
@@ -376,6 +385,7 @@ mod tests {
         assert_eq!(args.screen_height, Some(1440));
         assert_eq!(args.screen_width, Some(2560));
         assert_eq!(args.monitor_id, Some(42));
+        assert_eq!(args.windows_pen_interval_ms, 7);
         assert_eq!(args.ssh_ip, "remarkable.local:2222");
         assert_eq!(args.ssh_password.as_deref(), Some("secret"));
         assert_eq!(args.ssh_socket, "/tmp/agent.sock");
@@ -413,6 +423,12 @@ mod tests {
         assert!(matches!(args.host_driver, HostDriverArg::WindowsPen));
         assert_eq!(args.tablet_pressure_max, 2047);
         assert_eq!(args.tablet_tilt_max, 4500);
+    }
+
+    #[test]
+    fn rejects_windows_pen_interval_outside_slider_range() {
+        assert!(Args::try_parse_from(["remouseable", "--windows-pen-interval-ms=0"]).is_err());
+        assert!(Args::try_parse_from(["remouseable", "--windows-pen-interval-ms=21"]).is_err());
     }
 
     #[test]

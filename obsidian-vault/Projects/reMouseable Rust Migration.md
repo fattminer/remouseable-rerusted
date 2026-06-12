@@ -166,6 +166,10 @@ full-screen scaling. Experimental absolute tablet injection remained unreliable.
 - Track coordinate changes with compact bit flags.
 - Suppress duplicate native absolute positions.
 - Enable TCP `NODELAY`.
+- Coalesce Windows hover/contact frames to about 200 Hz while preserving every
+  contact and proximity transition.
+- Expose the Windows coalescing interval as a 1-20 ms GUI slider and CLI option;
+  retain 5 ms as the default.
 
 Movement coalescing remains possible, but must preserve pressure transition
 ordering so click and drag boundaries are never lost.

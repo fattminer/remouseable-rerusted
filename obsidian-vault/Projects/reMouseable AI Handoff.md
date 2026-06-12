@@ -100,6 +100,13 @@ Validated against real hardware:
 - Linux Wayland/Hyprland relative `uinput` scaling on June 5, 2026.
 - Windows synthetic pen ran continuously for 60 seconds on June 12, 2026 after
   adding injection pacing, transient retry, and pen proximity lifecycle frames.
+- Real tablet measurement showed roughly 520-570 `SYN_REPORT` frames/second.
+  Windows hover/contact updates are coalesced to about 200 Hz to prevent a
+  synthetic-pointer queue backlog; Down, Up, and proximity transitions bypass
+  coalescing.
+- Windows pen update interval is user-adjustable from 1-20 ms in the GUI or via
+  `--windows-pen-interval-ms`; default is 5 ms. Lower values improve latency and
+  sample fidelity but increase load and can reduce stability.
 
 Not yet broadly validated:
 
@@ -168,6 +175,7 @@ Important flags:
 | `--tablet-tilt-max` | Tilt calibration; verified default `9000` |
 | `--screen-width`, `--screen-height` | Override display dimensions |
 | `--monitor-id` | Select attached monitor ID for Windows pen mapping |
+| `--windows-pen-interval-ms` | Windows update interval `1..20`; default `5` ms |
 | `--debug-events` | Print selected raw events |
 | `--host-driver` | `auto`, `enigo`, `uinput`, `uinput-tablet`, or `windows-pen` |
 

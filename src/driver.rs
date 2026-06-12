@@ -71,7 +71,7 @@ impl NativeDriver {
     ///
     /// Returns an error when the display or selected input backend cannot be opened.
     pub fn new(kind: DriverKind) -> io::Result<Self> {
-        Self::new_for_monitor(kind, None)
+        Self::new_for_monitor(kind, None, 5)
     }
 
     /// Creates a host input driver targeting a selected display.
@@ -80,7 +80,11 @@ impl NativeDriver {
     ///
     /// Returns an error when display enumeration, monitor selection, or backend
     /// creation fails.
-    pub fn new_for_monitor(kind: DriverKind, monitor_id: Option<u32>) -> io::Result<Self> {
+    pub fn new_for_monitor(
+        kind: DriverKind,
+        monitor_id: Option<u32>,
+        windows_pen_interval_ms: u64,
+    ) -> io::Result<Self> {
         let display = selected_display(monitor_id)?;
         let screen_width = display.width;
         let screen_height = display.height;
@@ -118,7 +122,7 @@ impl NativeDriver {
             DriverKind::WindowsPen => {
                 #[cfg(target_os = "windows")]
                 {
-                    match WindowsPenDriver::new() {
+                    match WindowsPenDriver::new(windows_pen_interval_ms) {
                         Ok(driver) => Ok(NativeDriverInner::WindowsPen(driver)),
                         Err(error) if kind == DriverKind::Auto => {
                             eprintln!(
