@@ -6,8 +6,13 @@
 
 use clap::{Parser, ValueEnum};
 use remouseable::{
-    DEFAULT_TABLET_HEIGHT, DEFAULT_TABLET_WIDTH, DriverKind, HostDriver, NativeDriver,
-    app::{Config, Orientation, debug_events, process_events, process_events_with_driver},
+    DEFAULT_ERASER_PRESSURE_MAX, DEFAULT_ERASER_PRESSURE_MIN, DEFAULT_TABLET_HEIGHT,
+    DEFAULT_TABLET_PRESSURE_MAX, DEFAULT_TABLET_TILT_MAX, DEFAULT_TABLET_WIDTH, DriverKind,
+    HostDriver, NativeDriver, PenCalibration,
+    app::{
+        Config, Orientation, debug_events, process_events, process_events_with_driver,
+        process_pen_events_with_driver,
+    },
     ssh::{SshOptions, open_event_stream},
 };
 use std::{
@@ -20,8 +25,13 @@ use std::{
 
 const DEFAULT_EVENT_FILE: &str = "/dev/input/event1";
 
+mod ui;
+
+/// Command-line representation of tablet orientation.
+///
+/// The UI uses strings for the same values, then converts back to this enum.
 #[derive(Clone, Copy, Debug, ValueEnum)]
-enum OrientationArg {
+pub(crate) enum OrientationArg {
     Right,
     Left,
     Vertical,
@@ -37,12 +47,14 @@ impl From<OrientationArg> for Orientation {
     }
 }
 
+/// Command-line representation of the native input backend.
 #[derive(Clone, Copy, Debug, ValueEnum)]
-enum HostDriverArg {
+pub(crate) enum HostDriverArg {
     Auto,
     Enigo,
     Uinput,
     UinputTablet,
+    WindowsPen,
 }
 
 impl From<HostDriverArg> for DriverKind {
@@ -52,13 +64,18 @@ impl From<HostDriverArg> for DriverKind {
             HostDriverArg::Enigo => Self::Enigo,
             HostDriverArg::Uinput => Self::Uinput,
             HostDriverArg::UinputTablet => Self::UinputTablet,
+            HostDriverArg::WindowsPen => Self::WindowsPen,
         }
     }
 }
 
-#[derive(Debug, Parser)]
+#[derive(Clone, Debug, Parser)]
 #[command(version, about)]
-struct Args {
+pub(crate) struct Args {
+    /// Stay in terminal mode instead of opening the Slint frontend.
+    #[arg(long)]
+    tui: bool,
+
     /// Local raw Evdev stream to process instead of connecting over SSH.
     #[arg(long)]
     input_file: Option<PathBuf>,
@@ -80,8 +97,24 @@ struct Args {
     orientation: OrientationArg,
 
     /// Pen pressure value considered contact.
-    #[arg(long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 200)]
     pressure_threshold: i32,
+
+    /// Maximum raw tablet pressure value used for Windows pen normalization.
+    #[arg(long, default_value_t = DEFAULT_TABLET_PRESSURE_MAX)]
+    tablet_pressure_max: i32,
+
+    /// Minimum positive raw eraser pressure used for Windows normalization.
+    #[arg(long, default_value_t = DEFAULT_ERASER_PRESSURE_MIN)]
+    tablet_eraser_pressure_min: i32,
+
+    /// Maximum raw eraser pressure used for Windows normalization.
+    #[arg(long, default_value_t = DEFAULT_ERASER_PRESSURE_MAX)]
+    tablet_eraser_pressure_max: i32,
+
+    /// Maximum absolute tablet tilt value used for Windows pen normalization.
+    #[arg(long, default_value_t = DEFAULT_TABLET_TILT_MAX)]
+    tablet_tilt_max: i32,
 
     /// Host screen height.
     #[arg(long)]
@@ -90,6 +123,14 @@ struct Args {
     /// Host screen width.
     #[arg(long)]
     screen_width: Option<i32>,
+
+    /// Attached monitor ID used for Windows pen coordinate mapping.
+    #[arg(long)]
+    monitor_id: Option<u32>,
+
+    /// Windows pen hover/contact update interval in milliseconds.
+    #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=20))]
+    windows_pen_interval_ms: u64,
 
     /// Tablet coordinate height.
     #[arg(long, default_value_t = DEFAULT_TABLET_HEIGHT)]
@@ -125,6 +166,24 @@ struct Args {
 }
 
 fn run(args: &Args) -> Result<(), Box<dyn Error>> {
+    PenCalibration {
+        pressure_max: args.tablet_pressure_max,
+        eraser_pressure_min: args.tablet_eraser_pressure_min,
+        eraser_pressure_max: args.tablet_eraser_pressure_max,
+        tilt_max: args.tablet_tilt_max,
+        rotation_max: None,
+    }
+    .validate()?;
+
+    // UI is the default launch mode. `--tui` intentionally preserves terminal
+    // prompts, stdout JSON output, and visible console.
+    if !args.tui {
+        hide_console_window();
+        return ui::run_ui(args);
+    }
+
+    // Local input files are deterministic test/debug streams. Without one,
+    // connect to the tablet over SSH and read the remote event device.
     let is_live = args.input_file.is_none();
     let input: Box<dyn Read> = if let Some(input_file) = &args.input_file {
         Box::new(BufReader::new(File::open(input_file)?))
@@ -147,16 +206,29 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     };
     let mut output = BufWriter::new(io::stdout().lock());
 
+    // Debug mode prints raw selected events instead of driving the host mouse.
     if args.debug_events {
         debug_events(input, &mut output)?;
         output.flush()?;
         return Ok(());
     }
 
+    // Live mode injects native mouse events. Local mode writes JSON actions so
+    // event processing can be tested without moving the cursor.
     if is_live {
-        let driver = NativeDriver::new(args.host_driver.into())?;
+        let driver = NativeDriver::new_for_monitor(
+            args.host_driver.into(),
+            args.monitor_id,
+            args.windows_pen_interval_ms,
+        )?;
         let (detected_width, detected_height) = driver.screen_size()?;
-        process_events_with_driver(input, driver, config(args, detected_width, detected_height))?;
+        let config = config(args, detected_width, detected_height);
+        if driver.supports_pen() {
+            let screen_origin = driver.screen_origin();
+            process_pen_events_with_driver(input, driver, config, screen_origin)?;
+        } else {
+            process_events_with_driver(input, driver, config)?;
+        }
     } else {
         process_events(input, &mut output, config(args, 1920, 1080))?;
     }
@@ -165,13 +237,16 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
 }
 
 fn ssh_password_or_prompt(password: Option<&str>) -> io::Result<String> {
+    // `-` preserves original CLI behavior: ask interactively instead of taking
+    // password from command history.
     match password {
         Some("-") | None => rpassword::prompt_password("SSH password: "),
         Some(password) => Ok(password.to_owned()),
     }
 }
 
-fn event_file_or_prompt(event_file: Option<&str>) -> io::Result<String> {
+pub(crate) fn event_file_or_prompt(event_file: Option<&str>) -> io::Result<String> {
+    // Keep the historical default visible for terminal users.
     match event_file {
         Some(event_file) => Ok(event_file.to_owned()),
         None => prompt_with_default(
@@ -202,7 +277,8 @@ fn prompt_with_default<R: BufRead, W: Write>(
     }
 }
 
-fn config(args: &Args, default_width: i32, default_height: i32) -> Config {
+pub(crate) fn config(args: &Args, default_width: i32, default_height: i32) -> Config {
+    // Runtime config is shared by UI and TUI paths.
     Config {
         orientation: args.orientation.into(),
         tablet_width: args.tablet_width,
@@ -210,11 +286,37 @@ fn config(args: &Args, default_width: i32, default_height: i32) -> Config {
         screen_width: args.screen_width.unwrap_or(default_width),
         screen_height: args.screen_height.unwrap_or(default_height),
         pressure_threshold: args.pressure_threshold,
+        tablet_pressure_max: args.tablet_pressure_max,
+        tablet_eraser_pressure_min: args.tablet_eraser_pressure_min,
+        tablet_eraser_pressure_max: args.tablet_eraser_pressure_max,
+        tablet_tilt_max: args.tablet_tilt_max,
         disable_drag_event: args.disable_drag_event,
     }
 }
 
+#[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
+fn hide_console_window() {
+    use windows_sys::Win32::{
+        System::Console::GetConsoleWindow,
+        UI::WindowsAndMessaging::{SW_HIDE, ShowWindow},
+    };
+
+    // Windows exposes console visibility through raw Win32 calls.
+    unsafe {
+        let window = GetConsoleWindow();
+        if !window.is_null() {
+            ShowWindow(window, SW_HIDE);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn hide_console_window() {}
+
 fn main() -> ExitCode {
+    // Keep user-facing failures short and stable: no panic backtraces for
+    // ordinary connection/configuration problems.
     match run(&Args::parse()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -276,6 +378,8 @@ mod tests {
             "--pressure-threshold=1500",
             "--screen-height=1440",
             "--screen-width=2560",
+            "--monitor-id=42",
+            "--windows-pen-interval-ms=7",
             "--ssh-ip=remarkable.local:2222",
             "--ssh-password=secret",
             "--ssh-socket=/tmp/agent.sock",
@@ -293,6 +397,8 @@ mod tests {
         assert_eq!(args.pressure_threshold, 1500);
         assert_eq!(args.screen_height, Some(1440));
         assert_eq!(args.screen_width, Some(2560));
+        assert_eq!(args.monitor_id, Some(42));
+        assert_eq!(args.windows_pen_interval_ms, 7);
         assert_eq!(args.ssh_ip, "remarkable.local:2222");
         assert_eq!(args.ssh_password.as_deref(), Some("secret"));
         assert_eq!(args.ssh_socket, "/tmp/agent.sock");
@@ -305,8 +411,37 @@ mod tests {
     fn omits_prompted_live_values_from_cli_defaults() {
         let args = Args::try_parse_from(["remouseable"]).unwrap();
 
+        assert!(!args.tui);
         assert_eq!(args.ssh_password, None);
         assert_eq!(args.event_file, None);
+    }
+
+    #[test]
+    fn parses_terminal_mode_flag() {
+        let args = Args::try_parse_from(["remouseable", "--tui"]).unwrap();
+
+        assert!(args.tui);
+    }
+
+    #[test]
+    fn parses_windows_pen_calibration() {
+        let args = Args::try_parse_from([
+            "remouseable",
+            "--host-driver=windows-pen",
+            "--tablet-pressure-max=2047",
+            "--tablet-tilt-max=4500",
+        ])
+        .unwrap();
+
+        assert!(matches!(args.host_driver, HostDriverArg::WindowsPen));
+        assert_eq!(args.tablet_pressure_max, 2047);
+        assert_eq!(args.tablet_tilt_max, 4500);
+    }
+
+    #[test]
+    fn rejects_windows_pen_interval_outside_slider_range() {
+        assert!(Args::try_parse_from(["remouseable", "--windows-pen-interval-ms=0"]).is_err());
+        assert!(Args::try_parse_from(["remouseable", "--windows-pen-interval-ms=21"]).is_err());
     }
 
     #[test]

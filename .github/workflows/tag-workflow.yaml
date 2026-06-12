@@ -1,4 +1,4 @@
-name: Build Linux/Windows
+name: Build Release Binaries
 
 on:
   release:
@@ -10,50 +10,40 @@ permissions:
   contents: write
 
 jobs:
-  windows_linux:
-    name: Windows And Linux releases
-    runs-on: ubuntu-latest
+  build:
+    name: Release (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: remouseable-linux-x86_64
+            binary: target/release/remouseable
+          - os: windows-latest
+            artifact: remouseable-windows-x86_64.exe
+            binary: target/release/remouseable.exe
+          - os: macos-latest
+            artifact: remouseable-macos
+            binary: target/release/remouseable
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux Build Dependencies
-        run: sudo apt-get install --yes gcc libc6-dev libx11-dev xorg-dev libxtst-dev
-      - name: Install Windows Build Dependencies
-        run: sudo apt-get install --yes gcc-multilib gcc-mingw-w64
-      - name: Build Linux
-        run: mkdir -p .build && CGO_ENABLED=1 go build -o .build/linux main.go
-      - name: Build Windows
-        run: mkdir -p .build && CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows go build -o .build/windows.exe main.go
-      - name: Add Linux Artifact To Release
-        run: gh release upload ${{github.event.release.tag_name}} .build/linux --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - name: Add Windows Artifact To Release
-        run: gh release upload ${{github.event.release.tag_name}} .build/windows.exe --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
-  osx:
-    name: OSX Releases
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libx11-dev libxcb1-dev libxrandr-dev
+      - name: Build Release Binary
+        run: cargo build --release --locked
+      - name: Stage Release Binary
+        shell: bash
+        run: cp "${{ matrix.binary }}" "${{ matrix.artifact }}"
+      - name: Upload Workflow Artifact
+        uses: actions/upload-artifact@v4
         with:
-          go-version: 'stable'
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
-      - name: Build OSX AMD64
-        run: mkdir -p .build && CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o .build/osx-amd main.go
-      - name: Build OSX ARM64
-        run: mkdir -p .build && CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o .build/osx-arm main.go
-      - name: Add OSX AMD64 Artifact To Release
-        run: gh release upload ${{github.event.release.tag_name}} .build/osx-amd --clobber
-        env:
-          GH_TOKEN: ${{ github.token }}
-      - name: Add OSX ARM64 Artifact To Release
-        run: gh release upload ${{github.event.release.tag_name}} .build/osx-arm --clobber
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+      - name: Upload Published Release Asset
+        if: github.event_name == 'release'
+        run: gh release upload "${{ github.event.release.tag_name }}" "${{ matrix.artifact }}" --clobber
         env:
           GH_TOKEN: ${{ github.token }}

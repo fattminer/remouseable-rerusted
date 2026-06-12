@@ -13,7 +13,7 @@ pub trait PositionScaler {
 
 #[allow(clippy::cast_possible_truncation)]
 fn scale_axis(value: i32, target_size: i32, source_size: i32) -> i32 {
-    // Preserve Go's float-to-int truncation for compatibility.
+    // Preserve established float-to-int truncation behavior.
     (f64::from(target_size) / f64::from(source_size) * f64::from(value)) as i32
 }
 
@@ -77,7 +77,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn right_scaler_matches_go_behavior() {
+    fn right_scaler_maps_tablet_coordinates() {
         let scaler = RightPositionScaler {
             tablet_width: 100,
             tablet_height: 200,
@@ -89,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    fn left_scaler_matches_go_behavior() {
+    fn left_scaler_maps_tablet_coordinates() {
         let scaler = LeftPositionScaler {
             tablet_width: 100,
             tablet_height: 200,
@@ -101,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn vertical_scaler_matches_go_behavior() {
+    fn vertical_scaler_maps_tablet_coordinates() {
         let scaler = VerticalPositionScaler {
             tablet_width: 100,
             tablet_height: 200,

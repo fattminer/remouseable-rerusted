@@ -13,19 +13,26 @@ display-info = "0.5.9"
 enigo = "0.6.1"
 rpassword = "7"
 russh = { version = "0.61.1", default-features = false, features = ["flate2", "ring"] }
+slint = "1.16.1"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.13.2"
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_Console", "Win32_UI_Controls", "Win32_UI_Input_Pointer", "Win32_UI_WindowsAndMessaging"] }
+
 [build-dependencies]
-winresource = "0.1"
+slint-build = "1.16.1"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1.31"
 
 [lib]
 path = "src/lib.rs"
 
 [lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 
 [lints.clippy]
 all = "warn"

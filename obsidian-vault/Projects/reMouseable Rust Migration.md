@@ -9,249 +9,171 @@ tags:
   - roadmap
 status: in-progress
 language: Rust
-repository: "C:\\Users\\mfiner\\GIT\\remouseable"
-updated: 2026-06-08
+repository: C:/Users/mfiner/GIT/remouseable
+updated: 2026-06-12
 priority: high
 ---
 
 # reMouseable Rust Migration
 
-> [!success] Feasibility
-> Rust conversion is feasible. Core application is small, modular, and well tested. Main risk is cross-platform mouse injection behavior, not event-processing logic.
+> [!success] Current State
+> Core rewrite and live Rust application are implemented. Remaining migration
+> work centers on Rust-only packaging, cross-platform acceptance, secure SSH
+> defaults, and advanced native input behavior.
 
 ## Why Convert
 
-- Remove large vendored RobotGo C/CGO surface.
-- Improve type safety by replacing string event types and runtime type assertions with enums.
-- Simplify cross-platform build tooling.
-- Gain mature Rust options for Evdev/uinput and future Linux virtual tablet support.
-- Improve error handling and security while preserving behavior.
+- Remove the original vendored RobotGo C/CGO surface.
+- Replace string event types and runtime assertions with Rust enums and traits.
+- Improve error handling, testability, security, and packaging.
+- Support Linux Wayland through native `uinput` integration.
+- Create a maintainable base for future pressure, tilt, buttons, and monitors.
 
-Rust rewrite is not expected to materially improve runtime performance. Primary value is maintainability, safety, packaging, and future feature work.
+Runtime performance was not the primary reason for conversion. Main value is
+maintainability, safety, packaging, and future feature work.
 
-## Scope Assessment
+## Historical Scope
 
-Inspected project contains approximately:
+The original application was a small Go core surrounded by generated event
+codes and a large vendored RobotGo/native layer. Historical Go references in
+this note explain compatibility and migration decisions; current implementation
+is Rust-only.
 
-| Scope | Size |
-|---|---:|
-| Production Go excluding generated codes and RobotGo | About 650 lines |
-| Vendored C/header files | 52 files, about 260 KB |
-| Go files including tests/generated files | 22 files |
-
-Likely reliable parity effort: **2–4 weeks**, including real-device and cross-platform validation.
-
-## Proposed Rust Dependencies
-
-| Need | Candidate |
-|---|---|
-| CLI | `clap` |
-| SSH | `russh` with Ring crypto backend |
-| Password prompt | `rpassword` |
-| Mouse injection | `enigo` initially |
-| Display enumeration | `display-info` |
-| Linux Wayland input | `evdev`/uinput, Linux target only |
-| Windows executable resources | `winresource` |
-| Errors | `thiserror`, optionally `anyhow` at CLI boundary |
-| Logging | `tracing`, `tracing-subscriber` |
-| Tests | Built-in Rust tests with small fake trait implementations |
-
-Do not use host-native `evdev::InputEvent` to parse remote byte stream. Keep explicit 16-byte little-endian decoder.
-
-## Proposed Module Layout
+## Implemented Rust Architecture
 
 ```text
 Cargo.toml
 src/
-  main.rs
-  cli.rs
-  error.rs
-  event/
-    mod.rs
-    raw.rs
-    source.rs
-  state.rs
-  scale.rs
-  runtime.rs
-  driver/
-    mod.rs
-    enigo.rs
-  ssh.rs
+  app.rs       shared event-processing pipeline
+  driver.rs    host driver selection, Enigo, and Linux uinput
+  event.rs     explicit 16-byte Evdev decoder
+  lib.rs       public module surface and constants
+  main.rs      CLI and GUI/terminal selection
+  pen.rs       framed pressure/tilt domain and runtime
+  runtime.rs   scaled state-change dispatch
+  scale.rs     orientation mapping
+  ssh.rs       live russh event source
+  state.rs     pressure and position state machine
+  ui.rs        Slint frontend controller
+  windows_pen.rs Windows synthetic pen driver
+ui/
+  remouseable.slint
 tests/
-  captured_stream.rs
+  representative_stream.rs
 fixtures/
-  remarkable-events.bin
+  representative-events.hex
 ```
 
-## Proposed Domain Model
+Core domain boundaries remain trait-based for deterministic tests:
 
-```rust
-enum StateChange {
-    Move { x: i32, y: i32 },
-    Drag { x: i32, y: i32 },
-    Press(MouseButton),
-    Release(MouseButton),
-}
+- `EventSource`
+- `ChangeSource`
+- `PositionScaler`
+- `HostDriver`
 
-trait PositionScaler {
-    fn scale(&self, x: i32, y: i32) -> (i32, i32);
-}
-
-trait HostDriver {
-    fn screen_size(&self) -> Result<(i32, i32), DriverError>;
-    fn move_mouse(&mut self, x: i32, y: i32) -> Result<(), DriverError>;
-    fn drag_mouse(&mut self, x: i32, y: i32) -> Result<(), DriverError>;
-    fn press(&mut self, button: MouseButton) -> Result<(), DriverError>;
-    fn release(&mut self, button: MouseButton) -> Result<(), DriverError>;
-}
-```
-
-Prefer enums over string discriminators. Keep driver and source boundaries abstract for tests.
-
-## Phased Plan
+## Migration Phases
 
 ### Phase 0: Baseline and Fixtures
 
-- [ ] Install Go locally or rely on CI.
-- [ ] Confirm existing Go tests pass.
-- [ ] Capture representative tablet event streams.
-- [ ] Add Go regression test using captured stream.
-- [ ] Record expected state changes and scaled coordinates.
+- [x] Record expected state changes and scaled coordinates.
+- [x] Add deterministic synthetic wire-format fixture.
+- [x] Add Rust end-to-end fixture tests.
+- [ ] Capture and commit a sanitized representative real-tablet stream.
+- [ ] Compare sanitized capture against documented expected actions.
 
-Exit condition: deterministic compatibility fixture exists.
+`fixtures/representative-events.hex` is synthetic. It validates wire decoding
+and pipeline behavior but is not a substitute for a real-device capture.
 
 ### Phase 1: Pure Rust Core
 
-- [x] Initialize Cargo project beside Go implementation.
-- [x] Implement explicit 16-byte event decoder using `read_exact`.
-- [x] Implement event filtering.
-- [x] Implement state machine.
-- [x] Implement three position scalers.
-- [x] Implement runtime dispatch using fake driver.
-- [x] Port relevant Go unit tests.
+- [x] Initialize Cargo project.
+- [x] Implement explicit 16-byte decoder tolerant of fragmented reads.
+- [x] Implement event filtering and naming.
+- [x] Implement pressure/position state machine.
+- [x] Implement three orientation scalers.
+- [x] Implement runtime dispatch through fake drivers.
+- [x] Port relevant compatibility tests.
 
-Exit condition: Rust core produces same output as Go fixture tests.
+### Phase 2: CLI, GUI, and Local Sources
 
-Implementation started on June 4, 2026. Pure Rust core lives in `src/` and has no external dependencies. Fifteen Rust unit tests pass. Captured real-tablet fixture comparison remains incomplete, so Phase 1 exit condition is not fully satisfied.
-
-Validation commands:
-
-```shell
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
-```
-
-On the inspected Windows workstation, native MSVC tests require this library path because the Visual Studio developer environment is incomplete:
-
-```powershell
-$env:LIB='C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231\lib\onecore\x64'
-cargo test --all-targets
-```
-
-Rust CI now runs format, tests, and Clippy on Ubuntu.
-
-### Phase 2: CLI and Event Sources
-
-- [x] Implement `clap` CLI with compatible flags.
-- [x] Add local/static-file event source for debugging and tests.
-- [x] Implement structured errors and exit codes.
-- [x] Implement debug event output.
-
-Exit condition: application runs end-to-end from recorded event stream.
-
-Phase 2 completed on June 4, 2026. `cargo run -- --input-file <PATH>` processes a raw 16-byte Evdev stream and emits scaled action JSON Lines. Add `--debug-events` to emit named raw events instead.
-
-`fixtures/representative-events.hex` provides a deterministic synthetic wire-format fixture used by integration tests. It is not a real tablet capture; obtaining and comparing a real-device capture remains open Phase 0 work.
+- [x] Implement `clap` CLI.
+- [x] Add local/static event-file source.
+- [x] Add structured errors and process exit behavior.
+- [x] Add debug event output.
+- [x] Add Slint GUI as default launch mode.
+- [x] Keep terminal behavior behind `--tui`.
+- [x] Run live work off the Slint UI thread.
+- [x] Add cooperative Stop/cancellation behavior.
+- [x] Connect from the GUI by pressing Enter in the password field.
 
 ### Phase 3: SSH
 
-- [x] Implement password authentication.
-- [x] Implement SSH agent authentication.
+- [x] Implement password and prompted authentication.
+- [x] Implement SSH-agent socket authentication.
 - [x] Validate password authentication against real tablet.
 - [ ] Validate agent/RSA authentication against real tablet.
-- [ ] Secure host-key handling.
-- [x] Validate or safely encode event path.
-- [x] Stream command output without buffering full stream.
+- [x] Validate remote event paths against shell injection.
+- [x] Stream command output without buffering the whole stream.
+- [x] Add optional `known_hosts` verification.
+- [ ] Make host verification secure by default with usable first-use flow.
 
-Exit condition: Rust app receives live tablet events.
+The Ring-backed `russh` implementation connected to a real tablet and streamed
+`/dev/input/event1` on June 4, 2026. Keep `Cargo.lock` committed because SSH and
+cryptographic dependency resolution is sensitive.
 
-Phase 3 implementation completed on June 4, 2026. The Ring-backed `russh`
-backend successfully connected and authenticated with a real reMarkable tablet,
-then streamed `/dev/input/event1` for a timed smoke test. The tablet was idle
-during the test, so no stylus events were captured. Password authentication is
-validated; agent/RSA authentication still requires a real-device test.
+### Phase 4: Host Drivers
 
-The app preserves the Go application's insecure host-key default for launch
-compatibility and warns; `--ssh-known-hosts <PATH>` enables strict verification.
-`--event-file` accepts only safe absolute paths, blocking the Go implementation's
-command-injection issue.
-
-All original launch parameters are parsed by an explicit compatibility test.
-The source reports nonzero remote/OpenSSH command exits. Local validation:
-26 tests pass, format passes, and strict Clippy passes.
-
-### Phase 4: Host Driver
-
-- [x] Implement initial `enigo` driver.
-- [x] Run move, press, release, and drag pipeline on Windows with real tablet input.
-- [ ] Test on macOS, paying special attention to explicit drag events.
-- [ ] Test on Linux X11.
-- [ ] Replace `enigo` with platform-specific thin drivers only where behavior requires it.
+- [x] Implement Enigo driver.
 - [x] Detect primary display size using `display-info`.
-- [x] Add Linux Wayland uinput relative mouse backend.
-- [x] Add Hyprland focused-monitor logical size detection.
-- [x] Improve Hyprland scaling by chunking relative uinput movement.
-- [ ] Add explicit monitor selection and offsets.
+- [x] Validate Windows hover/press/drag/release pipeline with real tablet.
+- [x] Add Linux Wayland relative `uinput` backend.
+- [x] Add Hyprland focused-monitor logical-size detection.
+- [x] Chunk relative movement to avoid compositor/libinput delta limits.
+- [x] Add experimental absolute `uinput-tablet` backend.
+- [ ] Test macOS, especially drag semantics.
+- [ ] Test Linux X11 with real tablet.
+- [ ] Test additional Wayland compositors.
+- [x] Add explicit Windows pen monitor selection and virtual-screen offsets.
+- [x] Add Windows synthetic pen pressure/tilt backend.
+- [x] Add attached-monitor selection for Windows pen mapping.
+- [x] Map `BTN_TOOL_RUBBER` to Windows inverted eraser input.
 
-Exit condition: real-device parity on all supported platforms.
+Windows validation on June 4, 2026 processed live `/dev/input/event1` stylus
+events through SSH, parsing, scaling, and Enigo without runtime errors.
 
-Windows Phase 4 implementation landed on June 4, 2026. A real tablet produced
-21,657 stylus events from `/dev/input/event1` during a 20-second scan. The live
-Rust pipeline then ran SSH, event parsing, scaling, and native Enigo mouse
-injection together for a timed validation window without errors. `/dev/input/event2`
-was identified as touch input. The native driver releases a held left button
-when it shuts down.
-
-Latency optimization pass completed June 4, 2026:
-
-- Read complete 16-byte events in one call when the source has them available.
-- Transfer `russh` channel chunks through the blocking bridge as zero-copy `Bytes`.
-- Use one Tokio SSH worker instead of the default CPU-count worker pool.
-- Remove the redundant production `EV_ABS` selection layer.
-- Track coordinate changes with a compact bitmask.
-- Suppress duplicate absolute native mouse positions.
-
-TCP `NODELAY` was already enabled. The event stream is push-based, so there is
-no polling interval to increase. Movement coalescing remains a possible future
-optimization, but it must preserve pressure transition ordering to avoid missed
-click/drag boundaries. Use a release build for live operation.
-
-Linux Wayland pass completed June 5, 2026:
-
-- Added `--host-driver=auto|enigo|uinput|uinput-tablet`.
-- `auto` selects uinput only on Linux Wayland; Windows and macOS stay on Enigo.
-- Linux-only `evdev` dependency and uinput code are guarded with
-  `cfg(target_os = "linux")`.
-- Hyprland focused-monitor detection reads `hyprctl monitors -j`; tested host
-  reported 1920x1200 at scale 1.50 and Rust correctly used 1280x800 logical
-  pixels.
-- Relative uinput backend homes cursor to top-left, then emits target movement
-  in small frames. This fixed/improved the observed “only reaches part of the
-  screen” scaling issue; user reported it felt much better.
-- Experimental `uinput-tablet` absolute backend exists but did not work reliably
-  in Hyprland testing.
-- Live tablet testing used a real SSH password; do not record it in notes.
+Hyprland validation on June 5, 2026 detected a 1920x1200 monitor at scale 1.50
+as 1280x800 logical pixels. Relative movement chunking materially improved
+full-screen scaling. Experimental absolute tablet injection remained unreliable.
 
 ### Phase 5: Packaging and Cutover
 
-- [ ] Add Rust GitHub Actions build/test jobs.
-- [ ] Produce release binaries for all existing targets.
-- [ ] Document permissions and migration behavior.
-- [x] Embed Windows executable application icon.
-- [ ] Run captured-stream and real-device acceptance tests.
-- [ ] Keep Go release available during transition.
-- [ ] Remove Go/CGO implementation only after stable Rust release.
+- [x] Make Rust implementation the repository source of truth.
+- [x] Replace user README with Rust-only usage/build documentation.
+- [x] Preserve original creator attribution and GPL license.
+- [ ] Remove obsolete Go jobs from GitHub Actions.
+- [ ] Replace release workflows with Rust builds for all target platforms.
+- [ ] Convert devcontainer from Go tooling to Rust tooling.
+- [x] Produce and live smoke-test Windows release binary locally.
+- [ ] Produce and smoke-test macOS Intel and ARM release binaries.
+- [ ] Produce and smoke-test Linux release binary.
+- [ ] Document `/dev/uinput` permissions and supported compositor behavior.
+
+## Performance Work Completed
+
+- Read complete 16-byte events in one call when available.
+- Bridge `russh` chunks using `Bytes` without redundant copying.
+- Use one Tokio SSH worker instead of a CPU-count pool.
+- Remove redundant production event selection.
+- Track coordinate changes with compact bit flags.
+- Suppress duplicate native absolute positions.
+- Enable TCP `NODELAY`.
+- Coalesce Windows hover/contact frames with a 5 ms target while preserving
+  every contact and proximity transition.
+- The attempted 1-20 ms GUI control was removed after live telemetry remained
+  near 32 Hz at both extremes; Windows error-87 retry timing dominated it.
+
+Movement coalescing remains possible, but must preserve pressure transition
+ordering so click and drag boundaries are never lost.
 
 Packaging progress as of June 8, 2026:
 
@@ -271,69 +193,93 @@ Packaging progress as of June 8, 2026:
 
 ### macOS Drag Semantics
 
-Current native code emits `kCGEventLeftMouseDragged`, not only movement while button is down. Confirm `enigo` behavior. If incompatible, implement macOS driver using `core-graphics`.
+Confirm Enigo produces behavior accepted by drawing applications. Implement a
+thin Core Graphics driver if explicit dragged events are required.
 
-### Legacy SSH Compatibility
+### SSH Compatibility and Security
 
-Password authentication works against the tested Dropbear 2022.83 tablet.
-Agent authentication, especially RSA agent keys, still requires real-device testing.
-
-### Agent Authentication
-
-Unix agent behavior should be viable. Windows agent behavior requires explicit testing and may retain current limitation.
+Password authentication works against tested Dropbear 2022.83 firmware. Agent
+authentication still needs hardware validation. Host verification remains
+opt-in for compatibility and should become secure by default.
 
 ### Wayland
 
-Wayland is now an active Linux-specific feature through uinput, not Enigo/libei.
-Hyprland has partial real-device validation. Remaining work: broader compositor
-coverage, `/dev/uinput` permission documentation, multi-monitor behavior, and
-manual override guidance when compositor detection is wrong.
+Wayland support uses Linux `uinput`. Hyprland has partial validation; broader
+compositor coverage, permission documentation, and multi-monitor behavior remain
+open.
 
-### Dependency Risk
+### Windows Pen Semantics
 
-Input-injection and SSH crates are security-sensitive dependencies. Pin versions, review release changes, and use `cargo audit`.
+Windows `auto` now attempts a synthetic `PT_PEN` device, preserving continuous
+pressure and X/Y tilt from complete `SYN_REPORT` frames. It warns and falls back
+to Enigo if device creation fails; explicit `windows-pen` fails instead. Native
+mode requires Windows 10 version 1809 or newer.
 
-The Windows resource path now depends on `winresource`; keep the lockfile in
-sync so release builders get the same resource compiler behavior.
+Real `/dev/input/event1` capture on June 11, 2026 verified pressure `0..4095`,
+tilt X/Y `-9000..9000`, X `0..20966`, and Y `0..15725`. The hardware exposed no
+rotation axis, so rotation is intentionally omitted rather than synthesized.
+Windows Ink application validation remains pending.
 
-## Improvements to Include
+On June 12, 2026, a live Windows run remained active for 60 seconds without
+error 87 after pacing synthetic frames, retrying transient injection failures,
+and mapping `BTN_TOOL_PEN` proximity to out-of-range/new-pointer transitions.
+Windows monitor coordinates must be converted from desktop coordinates to
+coordinates relative to the virtual screen's top-left before injection. For a
+monitor left of the primary display, this prevents otherwise-correct scaling
+from targeting the wrong screen.
 
-- Use `read_exact` for events.
-- Secure SSH host verification by default.
-- Eliminate command injection through `--event-file`.
-- Return useful errors instead of panics.
-- Support monitor selection and offsets.
-- Allow more mouse buttons through generic press/release domain events.
-- Add local event-file source.
-- Add captured-stream integration tests.
-- Keep debug output stable or explicitly version it.
+### Dependency and Toolchain Risk
+
+Input injection and SSH crates are sensitive dependencies. Pin lockfile, review
+updates, run `cargo audit`, and validate Windows with a complete MSVC/SDK setup.
 
 ## Decision Log
 
 | Date | Decision | Reason |
 |---|---|---|
-| 2026-06-04 | Rust conversion assessed as feasible | Core is small and modular; Rust ecosystem covers required capabilities |
-| 2026-06-04 | Preserve explicit remote event decoder | Tablet event ABI uses 32-bit timestamps and differs from possible host ABI |
-| 2026-06-04 | Start with Enigo, allow native fallback | Fastest route to parity; macOS drag behavior may require native API |
-| 2026-06-04 | Run Go and Rust side by side during migration | Enables fixture comparison and safe rollback |
-| 2026-06-04 | Keep initial Rust core dependency-free | Core event parsing, state, scaling, and dispatch need only standard library |
-| 2026-06-04 | Improve partial-read behavior during port | Rust event source accepts fragmented reads and rejects truncated 16-byte events |
-| 2026-06-04 | Emit JSON actions before host driver integration | Makes local stream processing executable and testable before native input injection |
-| 2026-06-04 | Use Ring-backed `russh` for live SSH | Works against the real tablet's modern Dropbear algorithms without OpenSSL/libssh2 runtime dependencies |
-| 2026-06-04 | Pin RustCrypto prerelease dependencies in `Cargo.lock` | `russh 0.61.1` otherwise resolves incompatible `primefield` prerelease versions |
-| 2026-06-04 | Use Enigo for initial host driver | Safe cross-platform API integrates with existing driver trait; Windows real-tablet pipeline runs without errors |
-| 2026-06-04 | Optimize live hot path without movement coalescing | Removes copies, duplicate injections, and redundant work while preserving every distinct position and pressure transition |
-| 2026-06-04 | Preserve insecure host-key default temporarily | Keeps original launch behavior usable; warning and `--ssh-known-hosts` provide an upgrade path |
-| 2026-06-05 | Add Linux Wayland uinput backend | Enigo/X11-style injection is unreliable on Wayland; uinput virtual mouse works with Hyprland |
-| 2026-06-05 | Keep uinput Linux-only and auto-select Enigo elsewhere | Preserves Windows/macOS compatibility and avoids Linux-only dependency leakage |
-| 2026-06-05 | Chunk relative uinput movement | Large relative deltas can be limited by compositor/libinput behavior and fail to reach full screen |
-| 2026-06-08 | Embed Windows application icon with `winresource` | Explorer, shortcuts, and direct-console taskbar launches should show the project icon |
+| 2026-06-04 | Preserve explicit remote event decoder | Tablet ABI uses 32-bit timestamps and may differ from host ABI |
+| 2026-06-04 | Keep event core trait-based | Deterministic tests without SSH or native cursor movement |
+| 2026-06-04 | Start with Enigo | Fastest path to cross-platform behavior parity |
+| 2026-06-04 | Emit JSON actions for local streams | Executable end-to-end tests without native injection |
+| 2026-06-04 | Use Ring-backed `russh` | Compatible with tested tablet without OpenSSL runtime dependency |
+| 2026-06-04 | Keep `Cargo.lock` committed | Avoid incompatible cryptographic prerelease resolution |
+| 2026-06-04 | Preserve insecure host-key default temporarily | Compatibility while offering warning and known-hosts upgrade path |
+| 2026-06-04 | Optimize hot path without coalescing | Reduce latency without losing pressure transitions |
+| 2026-06-05 | Add Linux Wayland `uinput` backend | Enigo/X11 injection is unreliable on Wayland |
+| 2026-06-05 | Auto-select `uinput` only on Linux Wayland | Preserve Windows, macOS, and X11 behavior |
+| 2026-06-05 | Chunk relative `uinput` movement | Avoid compositor/libinput large-delta limitations |
+| 2026-06-11 | Treat Rust as source of truth | Go implementation is absent; migration history remains documentation only |
+| 2026-06-11 | Keep handoff and migration notes | They preserve hardware findings, risks, decisions, and acceptance context |
+| 2026-06-11 | Omit barrel rotation | Captured hardware exposes pressure and tilt but no genuine rotation axis |
+| 2026-06-11 | Prefer Windows synthetic pen in auto mode | Preserve pressure and tilt while retaining Enigo compatibility fallback |
+| 2026-06-12 | Use virtual-screen-relative Windows monitor origins | Synthetic pointer coordinates are relative to the virtual desktop top-left |
+| 2026-06-12 | Pace and retry Windows pen frames | Buffered SSH frames can arrive faster than synthetic pointer injection accepts |
+| 2026-06-12 | Map `BTN_TOOL_PEN` proximity | Windows requires explicit out-of-range and fresh pointer lifecycle transitions |
+| 2026-06-12 | Map `BTN_TOOL_RUBBER` eraser side | Preserve Marker Plus tool identity and emit Windows inverted eraser flags |
+| 2026-06-12 | Calibrate tip/eraser pressure separately | Live capture measured tip `1..4095`, eraser `184..2506`; use shared contact threshold `200` |
+
+## Validation
+
+```shell
+cargo fmt --check
+cargo test --all-targets
+cargo clippy --all-targets -- -D warnings
+cargo test --doc
+cargo build --release
+```
+
+Native mouse tests require manual per-platform smoke testing. Warn operators
+before tests that move or click the real cursor.
 
 ## Agent Handoff Prompt
 
-Use this when starting implementation:
-
-> Read `obsidian-vault/Projects/reMouseable AI Handoff.md` and `obsidian-vault/Projects/reMouseable Rust Migration.md`. Inspect current repository state before editing. Implement next incomplete migration phase while preserving existing Go behavior. Use captured 16-byte little-endian tablet event fixtures for parity. Do not remove Go implementation or change release defaults until cross-platform real-device acceptance criteria pass.
+> Read `obsidian-vault/Projects/reMouseable AI Handoff.md` and
+> `obsidian-vault/Projects/reMouseable Rust Migration.md`. Inspect current
+> repository state before editing. Preserve the fixed 16-byte tablet event ABI,
+> deterministic local fixture path, original-project attribution, and unrelated
+> user changes. Treat current Rust code as source of truth. Use historical Go
+> behavior only as compatibility context. Validate platform-specific changes on
+> each affected platform and warn before native input smoke tests.
 
 ## Related Notes
 

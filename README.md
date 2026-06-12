@@ -1,365 +1,294 @@
-# reMouseable - ReRusted
+# reMouseable
 
-Use a reMarkable tablet as a host mouse.
+Use a reMarkable tablet stylus as a host-computer mouse.
 
-This repository is now a Rust rewrite of Kevin Conway's original
-[`remouseable`](https://github.com/kevinconway/remouseable) project. The legacy
-Go implementation and documentation are no longer present.
-The active implementation is the Rust crate in `src/`.
+reMouseable connects to the tablet over SSH, reads Linux Evdev events, maps
+stylus coordinates to the active display, and emits native mouse movement,
+click, and drag actions. The application is written in Rust and provides a
+Slint graphical interface plus a terminal mode.
 
-## Current Status
+## Status
 
-The Rust conversion is functional and has replaced the original Go runtime for
-active development.
+The Rust application supports:
 
-Validated so far:
+- reMarkable event streams over SSH.
+- Password and SSH-agent authentication.
+- Optional OpenSSH `known_hosts` verification.
+- Windows synthetic pen injection with continuous pressure, X/Y tilt, and
+  Marker Plus eraser-side support.
+- Windows Enigo mouse fallback and macOS mouse injection through Enigo.
+- Linux X11 mouse injection through Enigo.
+- Linux Wayland mouse injection through a `uinput` virtual mouse.
+- `right`, `left`, and `vertical` tablet orientations.
+- Deterministic local event-stream processing for development and testing.
 
-- Live SSH event streaming from a reMarkable 2 using password authentication.
-- Default reMarkable 2 event path `/dev/input/event1`.
-- Windows host mouse control through Enigo.
-- Linux Wayland host mouse control through a `/dev/uinput` virtual mouse.
-- Hyprland focused-monitor detection with logical screen scaling.
-- Local raw evdev stream processing for deterministic debugging and tests.
+Linux Wayland behavior has been tested primarily with Hyprland. Broader
+compositor and multi-monitor coverage remains limited.
 
-Implemented but not fully validated:
+## Requirements
 
-- Linux X11 through the Enigo backend.
-- macOS through the Enigo backend.
-- SSH agent authentication with `SSH_AUTH_SOCK` / `--ssh-socket`.
-- OpenSSH `known_hosts` verification through `--ssh-known-hosts`.
-- Experimental Linux absolute tablet injection through `--host-driver=uinput-tablet`.
+- A reMarkable tablet reachable over USB at `10.11.99.1:22`, or over Wi-Fi at
+  another stable address.
+- Tablet root password, found under **Settings > Help > Copyrights and
+  licenses** on current tablet software.
+- Host accessibility/input permissions required by the operating system.
+- Linux Wayland only: write access to `/dev/uinput`.
 
-Known caveats:
+## Build
 
-- Release packaging is not finished. Build from source for this Rust version.
-- SSH host-key verification is disabled by default for compatibility with the
-  original tool. Use `--ssh-known-hosts <PATH>` when you want verification.
-- Linux Wayland support requires permission to open `/dev/uinput`.
-- `uinput-tablet` is experimental and was not reliable in Hyprland testing.
-- Multi-monitor behavior is limited. Hyprland uses the focused monitor; other
-  systems use the primary display or first detected display unless overridden.
+Install the current stable Rust toolchain, then run:
 
-## How It Works
+```shell
+cargo build --release
+```
 
-`remouseable` connects to the tablet over SSH and reads raw Linux evdev input
-events from the tablet's input device. It decodes stylus coordinates and
-pressure, maps tablet coordinates to host screen coordinates, and injects host
-mouse movement/clicks through a selectable host driver.
+The executable is written to `target/release/remouseable` on Linux and macOS,
+or `target/release/remouseable.exe` on Windows.
 
-The Rust implementation currently uses:
+Linux builds require X11 development libraries for the Enigo backend. On
+Debian or Ubuntu:
 
-- `russh` with the `ring` crypto backend for SSH.
-- `enigo` for cross-platform host mouse injection.
-- Linux `evdev` + `/dev/uinput` for Wayland-friendly virtual mouse injection.
-- `display-info` for host display detection.
-- `clap` for command-line parsing.
+```shell
+sudo apt-get update
+sudo apt-get install libx11-dev libxcb1-dev libxrandr-dev
+```
 
-## Quick Start
+Windows builds require a working MSVC Build Tools and Windows SDK environment.
+macOS builds require Xcode command-line tools.
 
-Connect the tablet over USB, then run the release binary:
+## Run
 
-```sh
+Launching without arguments opens the graphical interface:
+
+```shell
 remouseable
 ```
 
-The program prompts for the tablet SSH password and the remote event file. Press
-Enter at the event-file prompt to use the default reMarkable 2 path:
+Enter the tablet password and select **Start**. The default tablet address is
+`10.11.99.1:22`; the default event device is `/dev/input/event1`.
+
+Use terminal mode for prompts, scripting, or detailed diagnostics:
+
+```shell
+remouseable --tui
+```
+
+Pass connection values directly when needed:
+
+```shell
+remouseable --tui \
+  --ssh-password="TABLET_PASSWORD" \
+  --event-file="/dev/input/event1"
+```
+
+For a tablet connected over Wi-Fi:
+
+```shell
+remouseable --tui \
+  --ssh-ip="192.168.1.110:22" \
+  --ssh-password="TABLET_PASSWORD"
+```
+
+The stylus moves the cursor while hovering. Pressure above the configured
+threshold presses the left button; lifting the stylus releases it.
+
+## SSH Authentication
+
+Omit `--ssh-password`, or pass `--ssh-password=-`, to receive a hidden password
+prompt in terminal mode.
+
+To use an SSH agent, pass an explicitly empty password. `--ssh-socket` defaults
+to `SSH_AUTH_SOCK`:
+
+```shell
+remouseable --tui --ssh-password=""
+```
+
+Host-key verification is disabled unless a known-hosts file is supplied:
+
+```shell
+remouseable --tui \
+  --ssh-password="TABLET_PASSWORD" \
+  --ssh-known-hosts="$HOME/.ssh/known_hosts"
+```
+
+Only absolute, shell-safe remote event paths are accepted.
+
+## Host Drivers
+
+`--host-driver=auto` selects:
+
+- `uinput` on Linux Wayland.
+- `windows-pen` on Windows, falling back to `enigo` with a warning when native
+  pen creation is unavailable.
+- `enigo` on macOS and Linux X11.
+
+Available values are `auto`, `enigo`, `uinput`, `uinput-tablet`, and
+`windows-pen`. Explicit `windows-pen` returns an actionable error instead of
+falling back. It requires Windows 10 version 1809 or newer.
+`uinput-tablet` is experimental and is not the default because absolute-tablet
+behavior was unreliable during Hyprland testing.
+
+The verified reMarkable tip pressure range is `0..4095`; a June 12, 2026 live
+capture measured the Marker Plus eraser at positive values `184..2506`. Tilt is
+`-9000..9000` on both axes. Tip and eraser contact use a shared default
+threshold of `200`. Override calibration only for hardware reporting different
+ranges:
+
+```shell
+remouseable --tui --host-driver=windows-pen \
+  --tablet-pressure-max=4095 \
+  --tablet-eraser-pressure-min=184 \
+  --tablet-eraser-pressure-max=2506 \
+  --tablet-tilt-max=9000
+```
+
+The tested event device exposes no barrel-rotation axis, so reMouseable does
+not synthesize rotation. Pressure and tilt availability depends on tablet
+firmware and the selected event device.
+
+The eraser side uses the standard Linux `BTN_TOOL_RUBBER` event and is injected
+on Windows as an inverted eraser pen. Support depends on the pen and tablet
+firmware exposing that event on the selected event device.
+
+On Windows, the GUI lists every attached monitor and maps tablet coordinates to
+the selected display. Terminal users can select the same display by numeric ID
+with `--monitor-id`.
+
+The Windows pen path uses a `5` ms coalescing target. Terminal users can retain
+compatibility with existing launch scripts through `--windows-pen-interval-ms`,
+but actual output cadence is constrained by Windows synthetic-pointer
+acceptance and may be lower than the requested target.
+
+On Hyprland, reMouseable reads the focused monitor's logical dimensions from
+`hyprctl monitors -j`. Override display detection when necessary:
+
+```shell
+remouseable --tui --screen-width=1280 --screen-height=800
+```
+
+## Local Event Streams
+
+Process a captured 16-byte little-endian Evdev stream without moving the host
+cursor:
+
+```shell
+remouseable --tui --input-file=path/to/events.bin
+```
+
+This writes scaled mouse actions as JSON Lines. To print selected raw events
+instead:
+
+```shell
+remouseable --tui --input-file=path/to/events.bin --debug-events
+```
+
+Live `--debug-events` mode reads from the tablet but does not inject mouse
+actions.
+
+## Options
+
+Run `remouseable --help` for the complete generated option list. Important
+options include:
+
+| Option | Purpose |
+|---|---|
+| `--tui` | Stay in terminal mode instead of opening the GUI |
+| `--input-file <PATH>` | Process a local raw Evdev stream |
+| `--debug-events` | Print selected hardware events |
+| `--host-driver <DRIVER>` | Select `auto`, `enigo`, `uinput`, `uinput-tablet`, or `windows-pen` |
+| `--orientation <VALUE>` | Select `right`, `left`, or `vertical` |
+| `--pressure-threshold <VALUE>` | Set tip and eraser contact threshold; default `200` |
+| `--tablet-pressure-max <VALUE>` | Raw pressure maximum; verified default `4095` |
+| `--tablet-eraser-pressure-min <VALUE>` | Minimum positive eraser pressure; verified default `184` |
+| `--tablet-eraser-pressure-max <VALUE>` | Raw eraser pressure maximum; verified default `2506` |
+| `--tablet-tilt-max <VALUE>` | Absolute raw tilt maximum; verified default `9000` |
+| `--screen-width <VALUE>` | Override detected host display width |
+| `--screen-height <VALUE>` | Override detected host display height |
+| `--monitor-id <ID>` | Select attached monitor for Windows pen mapping |
+| `--windows-pen-interval-ms <MS>` | Set Windows pen update interval from `1` to `20`; default `5` |
+| `--event-file <PATH>` | Select remote event device |
+| `--ssh-ip <HOST:PORT>` | Set tablet SSH address; default `10.11.99.1:22` |
+| `--ssh-user <USER>` | Set tablet SSH user; default `root` |
+| `--ssh-password <VALUE>` | Set password, or `-` to prompt |
+| `--ssh-socket <PATH>` | Set SSH-agent socket |
+| `--ssh-known-hosts <PATH>` | Enable tablet host-key verification |
+
+## Platform Notes
+
+### Windows
+
+Native pen mode requires Windows 10 version 1809 or newer and uses Windows
+synthetic pointer injection. GUI mode hides the console window; use `--tui`
+when troubleshooting or select `enigo` for mouse-compatible fallback behavior.
+
+### macOS
+
+Grant the launching terminal or application Accessibility permission under
+**System Settings > Privacy & Security > Accessibility**.
+
+### Linux
+
+X11 uses Enigo. Wayland uses `/dev/uinput` by default. Configure an appropriate
+udev rule or group membership so the current user can open `/dev/uinput`; avoid
+running the entire application as root when a narrower permission is possible.
+
+## Architecture
+
+Core modules:
+
+| Path | Responsibility |
+|---|---|
+| `src/main.rs` | CLI parsing, GUI/terminal selection, application assembly |
+| `src/ui.rs` | Slint frontend and background live-stream control |
+| `src/ssh.rs` | SSH authentication, host-key checks, remote event stream |
+| `src/event.rs` | 16-byte Evdev decoding and event filtering |
+| `src/state.rs` | Stylus position and pressure state machine |
+| `src/pen.rs` | SYN_REPORT pen frames, normalization, and pen runtime |
+| `src/scale.rs` | Orientation-aware coordinate scaling |
+| `src/runtime.rs` | State-change dispatch to host drivers |
+| `src/driver.rs` | Host backend selection, Enigo, and Linux `uinput` |
+| `src/windows_pen.rs` | Windows synthetic pen packet construction and injection |
+| `src/app.rs` | Shared stream-processing pipeline |
+
+Data flow:
 
 ```text
-Event file [/dev/input/event1]:
+tablet event device -> SSH stream -> Evdev decoder -> mouse or pen frames
+                    -> coordinate scaler -> native host driver -> host input
 ```
 
-You can also pass both values directly:
-
-```sh
-remouseable --ssh-password="TABLET_PASSWORD" --event-file="/dev/input/event1"
-```
-
-For a wireless tablet, pass the tablet address:
-
-```sh
-remouseable --ssh-ip="192.168.1.110:22" --ssh-password="TABLET_PASSWORD" --event-file="/dev/input/event1"
-```
-
-The default USB SSH address is `10.11.99.1:22` and the default user is `root`.
-
-## Build From Source
-
-Install a stable Rust toolchain first:
-
-```sh
-rustup toolchain install stable
-rustup default stable
-```
-
-Then build the optimized binary:
-
-```sh
-cargo build --release
-```
-
-The output binary is:
-
-- Windows: `target\release\remouseable.exe`
-- Linux/macOS: `target/release/remouseable`
-
-### Windows Build Notes
-
-Use the MSVC Rust toolchain and install Visual Studio Build Tools with the C++
-toolchain and Windows SDK. Dependencies such as `ring` compile native C code and
-need a complete MSVC environment.
-
-If you see an error like `Cannot open include file: 'vcruntime.h'`, the MSVC
-environment is incomplete or the shell was not launched from a configured
-Developer PowerShell / Developer Command Prompt.
-
-The Windows build embeds `remouseable-icon.ico` into the executable. That icon is
-used by Explorer, shortcuts, and the taskbar when the executable is launched as
-its own console window. If `remouseable` is run inside Windows Terminal,
-PowerShell, or another existing terminal host, the taskbar button belongs to that
-terminal host and uses the terminal's icon instead.
-
-Recommended setup:
-
-```powershell
-rustup toolchain install stable-x86_64-pc-windows-msvc
-rustup default stable-x86_64-pc-windows-msvc
-cargo build --release
-```
-
-### Linux Build Notes
-
-Install Rust plus native development packages. On Debian/Ubuntu, start with:
-
-```sh
-sudo apt-get update
-sudo apt-get install -y build-essential pkg-config libx11-dev libxcb1-dev libxrandr-dev libxi-dev libxtst-dev
-cargo build --release
-```
-
-For Wayland sessions, `--host-driver=auto` selects the Linux `uinput` backend.
-The user running `remouseable` must be able to open `/dev/uinput`. Configure
-your distro's uinput permissions or run with appropriate privileges.
-
-Example udev rule pattern:
-
-```text
-KERNEL=="uinput", MODE="0660", GROUP="input", OPTIONS+="static_node=uinput"
-```
-
-Adding a user to broad input-related groups can expose sensitive input devices.
-Use the narrowest permission model your distro supports.
-
-### macOS Build Notes
-
-Install Rust and the Xcode command-line tools:
-
-```sh
-xcode-select --install
-cargo build --release
-```
-
-macOS also requires Accessibility permission for the terminal or application
-that launches `remouseable`, because the program controls the mouse.
-
-## Usage
-
-### Host Drivers
-
-`--host-driver=auto` is the default.
-
-| Driver | Platforms | Notes |
-| --- | --- | --- |
-| `auto` | All | Uses `uinput` on Linux Wayland and Enigo otherwise. |
-| `enigo` | Windows, macOS, Linux | Cross-platform backend. Best fit for Windows, macOS, and Linux X11. |
-| `uinput` | Linux only | Relative virtual mouse for Wayland. Requires `/dev/uinput`. |
-| `uinput-tablet` | Linux only | Experimental absolute virtual tablet. Not the default. |
-
-Force a driver when needed:
-
-```sh
-remouseable --host-driver=enigo
-remouseable --host-driver=uinput
-remouseable --host-driver=uinput-tablet
-```
-
-### Debug A Tablet Stream
-
-Print decoded hardware events instead of moving the host mouse:
-
-```sh
-remouseable --debug-events --ssh-password="TABLET_PASSWORD" --event-file="/dev/input/event1"
-```
-
-Process a local captured raw evdev stream:
-
-```sh
-remouseable --input-file path/to/events.bin
-```
-
-Print decoded events from a local stream:
-
-```sh
-remouseable --input-file path/to/events.bin --debug-events
-```
-
-### Screen And Tablet Mapping
-
-The host screen size is detected automatically for live mouse control. Override
-it when detection is wrong:
-
-```sh
-remouseable --screen-width=1920 --screen-height=1080
-```
-
-Tablet coordinate defaults are tuned for the reMarkable 2:
-
-```text
-tablet width:  20967
-tablet height: 15725
-```
-
-You normally should not need to change those values.
-
-### Orientation
-
-The default orientation is `right`, matching the original project behavior.
-Available values are:
-
-- `right`
-- `left`
-- `vertical`
-
-Example:
-
-```sh
-remouseable --orientation=vertical
-```
-
-### SSH Authentication
-
-Password authentication:
-
-```sh
-remouseable --ssh-password="TABLET_PASSWORD"
-```
-
-Prompt for password:
-
-```sh
-remouseable --ssh-password="-"
-```
-
-Try SSH agent authentication by passing an empty password and making sure
-`SSH_AUTH_SOCK` is set:
-
-```sh
-remouseable --ssh-password=""
-```
-
-Use a specific agent socket:
-
-```sh
-remouseable --ssh-password="" --ssh-socket="/path/to/agent.sock"
-```
-
-Verify the tablet host key with an OpenSSH known-hosts file:
-
-```sh
-remouseable --ssh-known-hosts="$HOME/.ssh/known_hosts"
-```
-
-## Command-Line Options
-
-```text
---input-file <INPUT_FILE>
-    Local raw Evdev stream to process instead of connecting over SSH.
-
---debug-events
-    Stream selected hardware events instead of emitting host actions.
-
---disable-drag-event
-    Disable custom drag events and emit ordinary movement while clicked.
-
---host-driver <auto|enigo|uinput|uinput-tablet>
-    Host mouse injection backend. Default: auto.
-
---orientation <right|left|vertical>
-    Tablet orientation. Default: right.
-
---pressure-threshold <PRESSURE_THRESHOLD>
-    Pen pressure value considered contact. Default: 1000.
-
---screen-height <SCREEN_HEIGHT>
---screen-width <SCREEN_WIDTH>
-    Override detected host screen size.
-
---tablet-height <TABLET_HEIGHT>
---tablet-width <TABLET_WIDTH>
-    Tablet coordinate bounds. Defaults: 15725 x 20967.
-
---event-file <EVENT_FILE>
-    Remote event path. Prompts when omitted for live SSH runs.
-
---ssh-ip <SSH_IP>
-    Tablet SSH address. Default: 10.11.99.1:22.
-
---ssh-user <SSH_USER>
-    Tablet SSH user. Default: root.
-
---ssh-password <SSH_PASSWORD>
-    Tablet SSH password. Prompts when omitted or set to "-".
-
---ssh-socket <SSH_SOCKET>
-    SSH agent socket. Defaults to SSH_AUTH_SOCK.
-
---ssh-known-hosts <SSH_KNOWN_HOSTS>
-    Verify the tablet host key against this OpenSSH known-hosts file.
-```
+Tablet events use a fixed 16-byte little-endian layout with 32-bit timestamp
+fields. Do not replace this parser with the host platform's native
+`input_event` layout.
 
 ## Development
 
-Run the Rust validation suite:
+Run all checks before submitting changes:
 
-```sh
+```shell
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
 cargo test --all-targets
+cargo clippy --all-targets -- -D warnings
 cargo test --doc
 ```
 
-The repository still contains Go workflows and technical documentation from the
-original implementation. Those are useful for historical context, but the Rust
-crate is the implementation being moved forward.
-
-## Original Project
-
-This project started as Kevin Conway's `remouseable`, which provided portable
-binaries for using a reMarkable tablet as a mouse. The Rust rewrite keeps the
-same core launch parameters where practical while adding modern SSH handling,
-local event replay, and Linux Wayland support.
-
-The original Go documentation remains in `technical-documentation/`.
+`fixtures/representative-events.hex` and
+`tests/representative_stream.rs` provide deterministic end-to-end coverage
+without moving the real cursor. Native mouse injection still requires manual
+smoke testing on each supported platform.
 
 ## License
 
-`remouseable` is free software: you can redistribute it and/or modify it under
-the terms of the GNU General Public License version 3 as published by the Free
-Software Foundation.
+GNU General Public License version 3. See [LICENSE](LICENSE).
 
-`remouseable` is distributed in the hope that it will be useful, but WITHOUT ANY
-WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
-PARTICULAR PURPOSE. See the GNU General Public License for more details.
+## Origins
 
-You should have received a copy of the GNU General Public License along with
-`remouseable`. If not, see <https://www.gnu.org/licenses/>.
+This Rust rewrite is based on the original
+[reMouseable project](https://github.com/kevinconway/remouseable) created by
+[Kevin Conway](https://github.com/kevinconway).
 
-## Thanks
-
-Thanks to [Kevin Conway](https://github.com/kevinconway/) for creating the
-original project.
-
-The original implementation referenced
-[`golang-evdev`](https://github.com/gvalkov/golang-evdev) for evdev parsing and
-embedded parts of [`robotgo`](https://github.com/go-vgo/robotgo) for host mouse
-control. The Rust rewrite now uses native Rust dependencies for those layers.
+Thank you to Kevin for his hard work designing and building reMouseable. His
+original implementation established the tablet event handling, coordinate
+mapping, SSH workflow, and cross-platform mouse-control behavior that made this
+rewrite possible.

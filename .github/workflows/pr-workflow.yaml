@@ -7,8 +7,8 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  rust:
-    name: Rust Core
+  checks:
+    name: Rust Checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,57 +23,24 @@ jobs:
         run: cargo test --all-targets
       - name: Lint
         run: cargo clippy --all-targets -- -D warnings
+      - name: Documentation Tests
+        run: cargo test --doc
 
-  tests:
-    name: Tests
-    runs-on: ubuntu-latest
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
+      - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux Build Dependencies
-        run: sudo apt-get install --yes gcc libc6-dev libx11-dev xorg-dev libxtst-dev
-      - uses: actions/cache@v4
-        id: tools
-        with:
-          path: bin
-          key: ${{ runner.os }}-${{ hashFiles('tools/go.sum') }}
-      - name: Install build/test tools
-        if: steps.tools.outputs.cache-hit != 'true'
-        run: make tools
-      - name: Lint Tests
-        run: make lint
-      - name: Unit Tests
-        run: make test
-  linux_windows:
-    name: Linux And Windows builds
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-      - name: Install Linux Build Dependencies
-        run: sudo apt-get install --yes gcc libc6-dev libx11-dev xorg-dev libxtst-dev
-      - name: Install Windows Build Dependencies
-        run: sudo apt-get install --yes gcc-multilib gcc-mingw-w64
-      - name: Build Linux
-        run: mkdir -p .build && CGO_ENABLED=1 go build -o .build/linux main.go
-      - name: Build Windows
-        run: mkdir -p .build && CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows go build -o .build/windows.exe main.go
-  osx:
-    name: OSX Builds
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: 'stable'
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
-      - name: Build OSX AMD64
-        run: mkdir -p .build && CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -o .build/osx-amd main.go
-      - name: Build OSX ARM64
-        run: mkdir -p .build && CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -o .build/osx-arm main.go
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes libx11-dev libxcb1-dev libxrandr-dev
+      - name: Build Release Binary
+        run: cargo build --release --locked
