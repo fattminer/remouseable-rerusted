@@ -9,6 +9,7 @@ use std::io::{self, Read};
 pub const RAW_EVENT_SIZE: usize = 16;
 
 pub const EV_SYN: u16 = 0x00;
+pub const EV_KEY: u16 = 0x01;
 pub const EV_ABS: u16 = 0x03;
 pub const SYN_REPORT: u16 = 0x00;
 pub const ABS_X: u16 = 0x00;
@@ -16,11 +17,13 @@ pub const ABS_Y: u16 = 0x01;
 pub const ABS_PRESSURE: u16 = 0x18;
 pub const ABS_TILT_X: u16 = 0x1a;
 pub const ABS_TILT_Y: u16 = 0x1b;
+pub const BTN_TOOL_PEN: u16 = 0x140;
 
 #[must_use]
 pub const fn event_type_name(event_type: u16) -> &'static str {
     match event_type {
         EV_SYN => "EV_SYN",
+        EV_KEY => "EV_KEY",
         EV_ABS => "EV_ABS",
         _ => "",
     }
@@ -30,6 +33,7 @@ pub const fn event_type_name(event_type: u16) -> &'static str {
 pub const fn event_code_name(event_type: u16, code: u16) -> &'static str {
     match (event_type, code) {
         (EV_SYN, SYN_REPORT) => "SYN_REPORT",
+        (EV_KEY, BTN_TOOL_PEN) => "BTN_TOOL_PEN",
         (EV_ABS, ABS_X) => "ABS_X",
         (EV_ABS, ABS_Y) => "ABS_Y",
         (EV_ABS, ABS_PRESSURE) => "ABS_PRESSURE",
@@ -219,7 +223,9 @@ mod tests {
     #[test]
     fn names_pen_frame_events() {
         assert_eq!(event_type_name(EV_SYN), "EV_SYN");
+        assert_eq!(event_type_name(EV_KEY), "EV_KEY");
         assert_eq!(event_code_name(EV_SYN, SYN_REPORT), "SYN_REPORT");
+        assert_eq!(event_code_name(EV_KEY, BTN_TOOL_PEN), "BTN_TOOL_PEN");
         assert_eq!(event_code_name(EV_ABS, ABS_TILT_X), "ABS_TILT_X");
         assert_eq!(event_code_name(EV_ABS, ABS_TILT_Y), "ABS_TILT_Y");
     }

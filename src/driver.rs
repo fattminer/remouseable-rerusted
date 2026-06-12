@@ -29,6 +29,17 @@ pub enum DriverKind {
     WindowsPen,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MonitorInfo {
+    pub id: u32,
+    pub label: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub is_primary: bool,
+}
+
 pub struct NativeDriver {
     inner: NativeDriverInner,
     screen_origin: (i32, i32),
@@ -60,7 +71,17 @@ impl NativeDriver {
     ///
     /// Returns an error when the display or selected input backend cannot be opened.
     pub fn new(kind: DriverKind) -> io::Result<Self> {
-        let display = primary_display()?;
+        Self::new_for_monitor(kind, None)
+    }
+
+    /// Creates a host input driver targeting a selected display.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when display enumeration, monitor selection, or backend
+    /// creation fails.
+    pub fn new_for_monitor(kind: DriverKind, monitor_id: Option<u32>) -> io::Result<Self> {
+        let display = selected_display(monitor_id)?;
         let screen_width = display.width;
         let screen_height = display.height;
         let inner = match resolve_driver_kind(kind) {
@@ -141,6 +162,21 @@ impl NativeDriver {
     }
 }
 
+/// Returns all attached host displays in operating-system enumeration order.
+///
+/// # Errors
+///
+/// Returns an error when displays cannot be enumerated or dimensions exceed
+/// the supported coordinate range.
+pub fn available_monitors() -> io::Result<Vec<MonitorInfo>> {
+    DisplayInfo::all()
+        .map_err(io::Error::other)?
+        .into_iter()
+        .enumerate()
+        .map(|(index, display)| monitor_info(index, &display))
+        .collect()
+}
+
 #[derive(Clone, Copy)]
 struct DisplayMetrics {
     x: i32,
@@ -149,9 +185,10 @@ struct DisplayMetrics {
     height: i32,
 }
 
-fn primary_display() -> io::Result<DisplayMetrics> {
-    if std::env::var("XDG_CURRENT_DESKTOP")
-        .is_ok_and(|desktop| desktop.eq_ignore_ascii_case("hyprland"))
+fn selected_display(monitor_id: Option<u32>) -> io::Result<DisplayMetrics> {
+    if monitor_id.is_none()
+        && std::env::var("XDG_CURRENT_DESKTOP")
+            .is_ok_and(|desktop| desktop.eq_ignore_ascii_case("hyprland"))
         && let Some(size) = hyprland_focused_monitor_size()?
     {
         return Ok(DisplayMetrics {
@@ -162,21 +199,82 @@ fn primary_display() -> io::Result<DisplayMetrics> {
         });
     }
 
-    let displays = DisplayInfo::all().map_err(io::Error::other)?;
-    let display = displays
-        .iter()
-        .find(|display| display.is_primary)
-        .or_else(|| displays.first())
-        .ok_or_else(|| io::Error::other("no host displays found"))?;
-    let screen_width = i32::try_from(display.width)
-        .map_err(|_| io::Error::other("primary display width exceeds i32"))?;
-    let screen_height = i32::try_from(display.height)
-        .map_err(|_| io::Error::other("primary display height exceeds i32"))?;
+    let monitors = available_monitors()?;
+    let monitor = choose_monitor(&monitors, monitor_id)?;
+    let (x, y) = injection_origin(&monitors, monitor);
     Ok(DisplayMetrics {
+        x,
+        y,
+        width: monitor.width,
+        height: monitor.height,
+    })
+}
+
+fn injection_origin(monitors: &[MonitorInfo], monitor: &MonitorInfo) -> (i32, i32) {
+    #[cfg(target_os = "windows")]
+    {
+        let virtual_x = monitors.iter().map(|item| item.x).min().unwrap_or(0);
+        let virtual_y = monitors.iter().map(|item| item.y).min().unwrap_or(0);
+        (
+            monitor.x.saturating_sub(virtual_x),
+            monitor.y.saturating_sub(virtual_y),
+        )
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = monitors;
+        (monitor.x, monitor.y)
+    }
+}
+
+fn choose_monitor(monitors: &[MonitorInfo], monitor_id: Option<u32>) -> io::Result<&MonitorInfo> {
+    match monitor_id {
+        Some(id) => monitors
+            .iter()
+            .find(|monitor| monitor.id == id)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("monitor ID {id} is not attached"),
+                )
+            }),
+        None => monitors
+            .iter()
+            .find(|monitor| monitor.is_primary)
+            .or_else(|| monitors.first())
+            .ok_or_else(|| io::Error::other("no host displays found")),
+    }
+}
+
+fn monitor_info(index: usize, display: &DisplayInfo) -> io::Result<MonitorInfo> {
+    let width =
+        i32::try_from(display.width).map_err(|_| io::Error::other("display width exceeds i32"))?;
+    let height = i32::try_from(display.height)
+        .map_err(|_| io::Error::other("display height exceeds i32"))?;
+    let name = if display.friendly_name.trim().is_empty() {
+        display.name.trim()
+    } else {
+        display.friendly_name.trim()
+    };
+    let primary = if display.is_primary { " (Primary)" } else { "" };
+    Ok(MonitorInfo {
+        id: display.id,
+        label: format!(
+            "{}: {} - {}x{} at {},{}{}",
+            index + 1,
+            name,
+            width,
+            height,
+            display.x,
+            display.y,
+            primary
+        ),
         x: display.x,
         y: display.y,
-        width: screen_width,
-        height: screen_height,
+        width,
+        height,
+        is_primary: display.is_primary,
     })
 }
 
@@ -778,7 +876,58 @@ impl Drop for UinputTabletDriver {
 }
 
 #[cfg(test)]
-#[cfg(target_os = "linux")]
+mod tests {
+    use super::*;
+
+    fn monitor(id: u32, is_primary: bool) -> MonitorInfo {
+        MonitorInfo {
+            id,
+            label: format!("Monitor {id}"),
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            is_primary,
+        }
+    }
+
+    fn positioned_monitor(id: u32, x: i32, y: i32) -> MonitorInfo {
+        MonitorInfo {
+            x,
+            y,
+            ..monitor(id, false)
+        }
+    }
+
+    #[test]
+    fn monitor_selection_defaults_to_primary() {
+        let monitors = [monitor(10, false), monitor(20, true)];
+
+        assert_eq!(choose_monitor(&monitors, None).unwrap().id, 20);
+    }
+
+    #[test]
+    fn monitor_selection_uses_requested_id() {
+        let monitors = [monitor(10, true), monitor(20, false)];
+
+        assert_eq!(choose_monitor(&monitors, Some(20)).unwrap().id, 20);
+        assert!(choose_monitor(&monitors, Some(99)).is_err());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn injection_origin_is_relative_to_virtual_screen_top_left() {
+        let monitors = [
+            positioned_monitor(10, -2560, 0),
+            positioned_monitor(20, 0, 0),
+        ];
+
+        assert_eq!(injection_origin(&monitors, &monitors[0]), (0, 0));
+        assert_eq!(injection_origin(&monitors, &monitors[1]), (2560, 0));
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
 mod linux_tests {
     use super::*;
 

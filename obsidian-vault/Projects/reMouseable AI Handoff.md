@@ -12,7 +12,7 @@ status: active
 language: Rust
 repository: C:/Users/mfiner/GIT/remouseable
 upstream: https://github.com/kevinconway/remouseable
-updated: 2026-06-11
+updated: 2026-06-12
 priority: high
 ---
 
@@ -90,12 +90,16 @@ not necessarily a project code defect.
 - Hyprland focused-monitor logical-size detection.
 - Experimental Linux absolute `uinput-tablet` backend.
 - Windows synthetic pen backend with continuous pressure and X/Y tilt.
+- Windows monitor enumeration and per-monitor pen coordinate mapping.
+- Pressing Enter in the GUI password field starts the connection when idle.
 
 Validated against real hardware:
 
 - Password SSH and `/dev/input/event1` streaming on June 4, 2026.
 - Windows live Enigo pipeline with real stylus events on June 4, 2026.
 - Linux Wayland/Hyprland relative `uinput` scaling on June 5, 2026.
+- Windows synthetic pen ran continuously for 60 seconds on June 12, 2026 after
+  adding injection pacing, transient retry, and pen proximity lifecycle frames.
 
 Not yet broadly validated:
 
@@ -103,7 +107,7 @@ Not yet broadly validated:
 - macOS native behavior, especially drag semantics.
 - Linux X11 real-device behavior.
 - Wayland compositors beyond Hyprland.
-- Multi-monitor selection and coordinate offsets.
+- General multi-monitor behavior outside the validated Windows pen path.
 - Windows synthetic pen behavior in a Windows Ink-aware drawing application.
 
 ## User-Facing Behavior
@@ -113,6 +117,10 @@ GUI launch:
 ```shell
 remouseable
 ```
+
+In the GUI, Enter in the SSH password field performs the same action as Start.
+On Windows with `auto` or `windows-pen`, select the mapping monitor from the
+attached-monitor dropdown before connecting.
 
 Terminal launch:
 
@@ -159,6 +167,7 @@ Important flags:
 | `--tablet-pressure-max` | Pressure calibration; verified default `4095` |
 | `--tablet-tilt-max` | Tilt calibration; verified default `9000` |
 | `--screen-width`, `--screen-height` | Override display dimensions |
+| `--monitor-id` | Select attached monitor ID for Windows pen mapping |
 | `--debug-events` | Print selected raw events |
 | `--host-driver` | `auto`, `enigo`, `uinput`, `uinput-tablet`, or `windows-pen` |
 
@@ -207,8 +216,10 @@ i32 value
 All fields are little-endian. Keep this explicit parser: tablet timestamps use
 32-bit fields, while host-native `input_event` layouts may differ.
 
-Named pen codes include `ABS_X`, `ABS_Y`, `ABS_PRESSURE`, `ABS_TILT_X`, and
-`ABS_TILT_Y`; `EV_SYN`/`SYN_REPORT` delimits complete pen frames.
+Named pen codes include `ABS_X`, `ABS_Y`, `ABS_PRESSURE`, `ABS_TILT_X`,
+`ABS_TILT_Y`, and `BTN_TOOL_PEN`; `EV_SYN`/`SYN_REPORT` delimits complete pen
+frames. `BTN_TOOL_PEN` proximity drives Windows out-of-range/new-pointer
+transitions.
 
 Real `/dev/input/event1` capability capture on June 11, 2026 confirmed pressure
 `0..4095`, tilt X/Y `-9000..9000`, X `0..20966`, and Y `0..15725`. No rotation
@@ -241,6 +252,7 @@ release operations through the `HostDriver` trait.
 
 - Enigo absolute mouse driver for Windows, macOS, and Linux X11.
 - Windows synthetic `PT_PEN` driver on Windows 10 version 1809 or newer.
+- Attached-monitor enumeration with virtual-screen-relative Windows origins.
 - Linux relative `uinput` mouse driver used by Wayland `auto` mode.
 - Experimental Linux absolute `uinput-tablet` driver.
 
@@ -286,13 +298,14 @@ can move or click the operator's real cursor; warn before manual injection tests
    before relying on CI releases.
 3. **Devcontainer is stale.** It still uses a Go image/extensions and must be
    converted before being documented as supported Rust setup.
-4. **Multi-monitor behavior is incomplete.** Hyprland uses focused-monitor size,
-   but monitor selection and offsets are not general.
+4. **Multi-monitor behavior is platform-specific.** Windows pen monitor
+   selection and virtual-screen offsets are validated. Hyprland uses the
+   focused-monitor size; explicit selection is not general on other platforms.
 5. **Platform acceptance is incomplete.** macOS, Linux X11, and additional
    Wayland compositors need real-device smoke tests.
-6. **Windows pen acceptance remains manual.** Build and validate hover, contact,
-   pressure, tilt, lift, shutdown release, and Enigo fallback in a Windows
-   Ink-aware application.
+6. **Windows pen acceptance remains partly manual.** Live hover/lift/stroke
+   stability passed for 60 seconds. Pressure/tilt brush behavior, shutdown
+   release, and Enigo fallback still need explicit application-level checks.
 7. **Dependency security matters.** Keep `Cargo.lock`, review `russh` and input
    crate updates, and run `cargo audit` when available.
 
@@ -325,7 +338,7 @@ can move or click the operator's real cursor; warn before manual injection tests
 - [x] Hover, press, drag, and release work on tested Windows host.
 - [x] Right, left, and vertical mappings have unit coverage.
 - [x] Local stream and debug output have integration coverage.
-- [ ] Windows release build and smoke test pass in supported CI/toolchain.
+- [x] Windows release build and local live smoke test pass with MSVC Build Tools.
 - [ ] macOS Intel/ARM builds and real-device smoke tests pass.
 - [ ] Linux X11 build and real-device smoke test pass.
 - [x] Linux Wayland/Hyprland basic scaling has real-device validation.

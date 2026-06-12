@@ -15,7 +15,7 @@ pub mod state;
 #[cfg(target_os = "windows")]
 mod windows_pen;
 
-pub use driver::{DriverKind, NativeDriver};
+pub use driver::{DriverKind, MonitorInfo, NativeDriver, available_monitors};
 pub use event::{
     EvdevEvent, FilteringEventSource, ReaderEventSource, SelectingEventSource, event_code_name,
     event_type_name,

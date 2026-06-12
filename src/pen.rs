@@ -7,7 +7,8 @@
 use crate::{
     PositionScaler,
     event::{
-        ABS_PRESSURE, ABS_TILT_X, ABS_TILT_Y, ABS_X, ABS_Y, EV_ABS, EV_SYN, EventSource, SYN_REPORT,
+        ABS_PRESSURE, ABS_TILT_X, ABS_TILT_Y, ABS_X, ABS_Y, BTN_TOOL_PEN, EV_ABS, EV_KEY, EV_SYN,
+        EventSource, SYN_REPORT,
     },
 };
 use std::{cmp::Ordering, error::Error, fmt, io};
@@ -21,6 +22,7 @@ pub enum PenPhase {
     Down,
     Contact,
     Up,
+    OutOfRange,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -112,6 +114,7 @@ pub struct EvdevPenFrameSource<S> {
     rotation: Option<i32>,
     change_flags: u8,
     contacting: bool,
+    in_range: Option<bool>,
     finished: bool,
 }
 
@@ -128,11 +131,20 @@ impl<S> EvdevPenFrameSource<S> {
             rotation: None,
             change_flags: 0,
             contacting: false,
+            in_range: None,
             finished: false,
         }
     }
 
     fn apply(&mut self, event_type: u16, code: u16, value: i32) {
+        if event_type == EV_KEY && code == BTN_TOOL_PEN {
+            let in_range = value != 0;
+            if self.in_range != Some(in_range) {
+                self.change_flags |= FRAME_CHANGED;
+            }
+            self.in_range = Some(in_range);
+            return;
+        }
         if event_type != EV_ABS {
             return;
         }
@@ -180,6 +192,20 @@ impl<S> EvdevPenFrameSource<S> {
         let (Some(x), Some(y)) = (self.x, self.y) else {
             return None;
         };
+        if self.in_range == Some(false) {
+            self.contacting = false;
+            self.change_flags = 0;
+            return Some(PenInput {
+                x,
+                y,
+                pressure: 0,
+                tilt_x: self.tilt_x,
+                tilt_y: self.tilt_y,
+                rotation: None,
+                phase: PenPhase::OutOfRange,
+                position_changed: false,
+            });
+        }
         let next_contacting = match self.pressure.cmp(&self.pressure_threshold) {
             Ordering::Greater => true,
             Ordering::Less => false,
@@ -451,6 +477,31 @@ mod tests {
         assert!(!frames.next_pen().unwrap().unwrap().position_changed);
         assert_eq!(frames.next_pen().unwrap().unwrap().tilt_y, Some(-900));
         assert_eq!(frames.next_pen().unwrap(), None);
+    }
+
+    #[test]
+    fn emits_out_of_range_and_new_hover_from_tool_proximity() {
+        let source = Events(
+            [
+                event(EV_KEY, BTN_TOOL_PEN, 1),
+                event(EV_ABS, ABS_X, 10),
+                event(EV_ABS, ABS_Y, 20),
+                report(),
+                event(EV_KEY, BTN_TOOL_PEN, 0),
+                report(),
+                event(EV_KEY, BTN_TOOL_PEN, 1),
+                report(),
+            ]
+            .into(),
+        );
+        let mut frames = EvdevPenFrameSource::new(source, 1_000);
+
+        assert_eq!(frames.next_pen().unwrap().unwrap().phase, PenPhase::Hover);
+        assert_eq!(
+            frames.next_pen().unwrap().unwrap().phase,
+            PenPhase::OutOfRange
+        );
+        assert_eq!(frames.next_pen().unwrap().unwrap().phase, PenPhase::Hover);
     }
 
     #[test]

@@ -10,7 +10,7 @@ tags:
 status: in-progress
 language: Rust
 repository: C:/Users/mfiner/GIT/remouseable
-updated: 2026-06-11
+updated: 2026-06-12
 priority: high
 ---
 
@@ -104,6 +104,7 @@ and pipeline behavior but is not a substitute for a real-device capture.
 - [x] Keep terminal behavior behind `--tui`.
 - [x] Run live work off the Slint UI thread.
 - [x] Add cooperative Stop/cancellation behavior.
+- [x] Connect from the GUI by pressing Enter in the password field.
 
 ### Phase 3: SSH
 
@@ -132,8 +133,9 @@ cryptographic dependency resolution is sensitive.
 - [ ] Test macOS, especially drag semantics.
 - [ ] Test Linux X11 with real tablet.
 - [ ] Test additional Wayland compositors.
-- [ ] Add explicit monitor selection and offsets.
+- [x] Add explicit Windows pen monitor selection and virtual-screen offsets.
 - [x] Add Windows synthetic pen pressure/tilt backend.
+- [x] Add attached-monitor selection for Windows pen mapping.
 
 Windows validation on June 4, 2026 processed live `/dev/input/event1` stylus
 events through SSH, parsing, scaling, and Enigo without runtime errors.
@@ -150,7 +152,7 @@ full-screen scaling. Experimental absolute tablet injection remained unreliable.
 - [ ] Remove obsolete Go jobs from GitHub Actions.
 - [ ] Replace release workflows with Rust builds for all target platforms.
 - [ ] Convert devcontainer from Go tooling to Rust tooling.
-- [ ] Produce and smoke-test Windows release binary.
+- [x] Produce and live smoke-test Windows release binary locally.
 - [ ] Produce and smoke-test macOS Intel and ARM release binaries.
 - [ ] Produce and smoke-test Linux release binary.
 - [ ] Document `/dev/uinput` permissions and supported compositor behavior.
@@ -199,6 +201,14 @@ tilt X/Y `-9000..9000`, X `0..20966`, and Y `0..15725`. The hardware exposed no
 rotation axis, so rotation is intentionally omitted rather than synthesized.
 Windows Ink application validation remains pending.
 
+On June 12, 2026, a live Windows run remained active for 60 seconds without
+error 87 after pacing synthetic frames, retrying transient injection failures,
+and mapping `BTN_TOOL_PEN` proximity to out-of-range/new-pointer transitions.
+Windows monitor coordinates must be converted from desktop coordinates to
+coordinates relative to the virtual screen's top-left before injection. For a
+monitor left of the primary display, this prevents otherwise-correct scaling
+from targeting the wrong screen.
+
 ### Dependency and Toolchain Risk
 
 Input injection and SSH crates are sensitive dependencies. Pin lockfile, review
@@ -223,6 +233,9 @@ updates, run `cargo audit`, and validate Windows with a complete MSVC/SDK setup.
 | 2026-06-11 | Keep handoff and migration notes | They preserve hardware findings, risks, decisions, and acceptance context |
 | 2026-06-11 | Omit barrel rotation | Captured hardware exposes pressure and tilt but no genuine rotation axis |
 | 2026-06-11 | Prefer Windows synthetic pen in auto mode | Preserve pressure and tilt while retaining Enigo compatibility fallback |
+| 2026-06-12 | Use virtual-screen-relative Windows monitor origins | Synthetic pointer coordinates are relative to the virtual desktop top-left |
+| 2026-06-12 | Pace and retry Windows pen frames | Buffered SSH frames can arrive faster than synthetic pointer injection accepts |
+| 2026-06-12 | Map `BTN_TOOL_PEN` proximity | Windows requires explicit out-of-range and fresh pointer lifecycle transitions |
 
 ## Validation
 

@@ -142,6 +142,10 @@ The tested event device exposes no barrel-rotation axis, so reMouseable does
 not synthesize rotation. Pressure and tilt availability depends on tablet
 firmware and the selected event device.
 
+On Windows, the GUI lists every attached monitor and maps tablet coordinates to
+the selected display. Terminal users can select the same display by numeric ID
+with `--monitor-id`.
+
 On Hyprland, reMouseable reads the focused monitor's logical dimensions from
 `hyprctl monitors -j`. Override display detection when necessary:
 
@@ -185,6 +189,7 @@ options include:
 | `--tablet-tilt-max <VALUE>` | Absolute raw tilt maximum; verified default `9000` |
 | `--screen-width <VALUE>` | Override detected host display width |
 | `--screen-height <VALUE>` | Override detected host display height |
+| `--monitor-id <ID>` | Select attached monitor for Windows pen mapping |
 | `--event-file <PATH>` | Select remote event device |
 | `--ssh-ip <HOST:PORT>` | Set tablet SSH address; default `10.11.99.1:22` |
 | `--ssh-user <USER>` | Set tablet SSH user; default `root` |

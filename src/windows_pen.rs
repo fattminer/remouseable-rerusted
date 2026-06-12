@@ -7,19 +7,20 @@
 // by the Free Software Foundation.
 
 use crate::{PenDriver, PenInput, PenPhase};
-use std::{io, ptr};
+use std::{
+    io, ptr, thread,
+    time::{Duration, Instant},
+};
 use windows_sys::Win32::{
-    Foundation::{GetLastError, POINT},
+    Foundation::{ERROR_INVALID_PARAMETER, ERROR_NOT_READY, GetLastError, POINT},
     UI::{
         Controls::{
             CreateSyntheticPointerDevice, DestroySyntheticPointerDevice, HSYNTHETICPOINTERDEVICE,
             POINTER_FEEDBACK_NONE, POINTER_TYPE_INFO, POINTER_TYPE_INFO_0,
         },
         Input::Pointer::{
-            InjectSyntheticPointerInput, POINTER_CHANGE_FIRSTBUTTON_DOWN,
-            POINTER_CHANGE_FIRSTBUTTON_UP, POINTER_CHANGE_NONE, POINTER_FLAG_DOWN,
-            POINTER_FLAG_FIRSTBUTTON, POINTER_FLAG_INCONTACT, POINTER_FLAG_INRANGE,
-            POINTER_FLAG_NEW, POINTER_FLAG_PRIMARY, POINTER_FLAG_UP, POINTER_FLAG_UPDATE,
+            InjectSyntheticPointerInput, POINTER_FLAG_DOWN, POINTER_FLAG_INCONTACT,
+            POINTER_FLAG_INRANGE, POINTER_FLAG_NEW, POINTER_FLAG_UP, POINTER_FLAG_UPDATE,
             POINTER_INFO, POINTER_PEN_INFO,
         },
         WindowsAndMessaging::{
@@ -33,6 +34,7 @@ pub struct WindowsPenDriver {
     started: bool,
     contacting: bool,
     last_input: Option<PenInput>,
+    last_injection: Option<Instant>,
 }
 
 impl WindowsPenDriver {
@@ -46,20 +48,109 @@ impl WindowsPenDriver {
             started: false,
             contacting: false,
             last_input: None,
+            last_injection: None,
         })
     }
 
     fn inject(&mut self, input: PenInput) -> io::Result<()> {
-        let packet = build_packet(input, !self.started);
-        let success = unsafe { InjectSyntheticPointerInput(self.device, &raw const packet, 1) };
-        if success == 0 {
-            return Err(last_error("injecting Windows synthetic pen input"));
+        let mut input = input;
+        if matches!(input.phase, PenPhase::OutOfRange) {
+            if !self.started {
+                return Ok(());
+            }
+            if self.contacting {
+                let mut up = input;
+                up.phase = PenPhase::Up;
+                self.inject_one(up, false)?;
+            }
+            self.inject_one(input, false)?;
+            self.started = false;
+            self.contacting = false;
+            return Ok(());
         }
+        if !self.started {
+            let mut hover = input;
+            hover.phase = PenPhase::Hover;
+            hover.pressure = 0;
+            self.inject_one(hover, true)?;
+            if matches!(input.phase, PenPhase::Hover) {
+                return Ok(());
+            }
+        }
+
+        if self.contacting && matches!(input.phase, PenPhase::Hover) {
+            let mut up = input;
+            up.phase = PenPhase::Up;
+            up.pressure = 0;
+            self.inject_one(up, false)?;
+        }
+
+        if !self.contacting && matches!(input.phase, PenPhase::Contact) {
+            input.phase = PenPhase::Down;
+        }
+        self.inject_one(input, false)?;
+
+        // Windows requires the next DOWN to transition from HOVER, but a tablet
+        // can report no changed frame between lift and the next contact.
+        if matches!(input.phase, PenPhase::Up) {
+            let mut hover = input;
+            hover.phase = PenPhase::Hover;
+            hover.pressure = 0;
+            self.inject_one(hover, false)?;
+        }
+        Ok(())
+    }
+
+    fn inject_one(&mut self, input: PenInput, first: bool) -> io::Result<()> {
+        if let Some(last) = self.last_injection {
+            let elapsed = last.elapsed();
+            let minimum = Duration::from_millis(1);
+            if let Some(wait) = minimum.checked_sub(elapsed) {
+                thread::sleep(wait);
+            }
+        }
+        let packet = build_packet(input, first);
+        inject_packet(self.device, &packet).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "{error}; phase={:?} position=({}, {}) pressure={} tilt=({:?}, {:?}) previous={:?}",
+                    input.phase,
+                    input.x,
+                    input.y,
+                    input.pressure,
+                    input.tilt_x,
+                    input.tilt_y,
+                    self.last_input.map(|previous| previous.phase)
+                ),
+            )
+        })?;
+        self.last_injection = Some(Instant::now());
         self.started = true;
         self.contacting = matches!(input.phase, PenPhase::Down | PenPhase::Contact);
         self.last_input = Some(input);
         Ok(())
     }
+}
+
+fn inject_packet(device: HSYNTHETICPOINTERDEVICE, packet: &POINTER_TYPE_INFO) -> io::Result<()> {
+    const MAX_NOT_READY_RETRIES: usize = 20;
+    for retry in 0..=MAX_NOT_READY_RETRIES {
+        let success = unsafe { InjectSyntheticPointerInput(device, ptr::from_ref(packet), 1) };
+        if success != 0 {
+            return Ok(());
+        }
+        let error = unsafe { GetLastError() };
+        let transient = error == ERROR_NOT_READY || error == ERROR_INVALID_PARAMETER;
+        if !transient || retry == MAX_NOT_READY_RETRIES {
+            return Err(windows_error(
+                "injecting Windows synthetic pen input",
+                error,
+            ));
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
+    unreachable!()
 }
 
 impl PenDriver for WindowsPenDriver {
@@ -90,19 +181,16 @@ impl Drop for WindowsPenDriver {
 }
 
 fn build_packet(input: PenInput, first: bool) -> POINTER_TYPE_INFO {
-    let (phase_flags, button_change) = match input.phase {
-        PenPhase::Hover => (POINTER_FLAG_UPDATE, POINTER_CHANGE_NONE),
-        PenPhase::Down => (
-            POINTER_FLAG_DOWN | POINTER_FLAG_INCONTACT | POINTER_FLAG_FIRSTBUTTON,
-            POINTER_CHANGE_FIRSTBUTTON_DOWN,
-        ),
-        PenPhase::Contact => (
-            POINTER_FLAG_UPDATE | POINTER_FLAG_INCONTACT | POINTER_FLAG_FIRSTBUTTON,
-            POINTER_CHANGE_NONE,
-        ),
-        PenPhase::Up => (POINTER_FLAG_UP, POINTER_CHANGE_FIRSTBUTTON_UP),
+    let phase_flags = match input.phase {
+        PenPhase::Hover | PenPhase::OutOfRange => POINTER_FLAG_UPDATE,
+        PenPhase::Down => POINTER_FLAG_DOWN | POINTER_FLAG_INCONTACT,
+        PenPhase::Contact => POINTER_FLAG_UPDATE | POINTER_FLAG_INCONTACT,
+        PenPhase::Up => POINTER_FLAG_UP,
     };
-    let mut pointer_flags = POINTER_FLAG_INRANGE | POINTER_FLAG_PRIMARY | phase_flags;
+    let mut pointer_flags = phase_flags;
+    if !matches!(input.phase, PenPhase::OutOfRange) {
+        pointer_flags |= POINTER_FLAG_INRANGE;
+    }
     if first {
         pointer_flags |= POINTER_FLAG_NEW;
     }
@@ -124,20 +212,9 @@ fn build_packet(input: PenInput, first: bool) -> POINTER_TYPE_INFO {
     let pointer_info = POINTER_INFO {
         pointerType: PT_PEN,
         pointerId: 1,
-        frameId: 0,
         pointerFlags: pointer_flags,
-        sourceDevice: ptr::null_mut(),
-        hwndTarget: ptr::null_mut(),
         ptPixelLocation: point,
-        ptHimetricLocation: POINT::default(),
-        ptPixelLocationRaw: point,
-        ptHimetricLocationRaw: POINT::default(),
-        dwTime: 0,
-        historyCount: 1,
-        InputData: 0,
-        dwKeyStates: 0,
-        PerformanceCount: 0,
-        ButtonChangeType: button_change,
+        ..POINTER_INFO::default()
     };
     let pen_info = POINTER_PEN_INFO {
         pointerInfo: pointer_info,
@@ -162,10 +239,8 @@ fn build_out_of_range_packet(input: PenInput) -> POINTER_TYPE_INFO {
     let pointer_info = POINTER_INFO {
         pointerType: PT_PEN,
         pointerId: 1,
-        pointerFlags: POINTER_FLAG_UPDATE | POINTER_FLAG_PRIMARY,
+        pointerFlags: POINTER_FLAG_UPDATE,
         ptPixelLocation: point,
-        ptPixelLocationRaw: point,
-        historyCount: 1,
         ..POINTER_INFO::default()
     };
     POINTER_TYPE_INFO {
@@ -181,6 +256,10 @@ fn build_out_of_range_packet(input: PenInput) -> POINTER_TYPE_INFO {
 
 fn last_error(context: &str) -> io::Error {
     let error = unsafe { GetLastError() };
+    windows_error(context, error)
+}
+
+fn windows_error(context: &str, error: u32) -> io::Error {
     io::Error::new(
         io::Error::from_raw_os_error(i32::try_from(error).unwrap_or(i32::MAX)).kind(),
         format!("{context} failed with Windows error {error}"),
@@ -260,9 +339,26 @@ mod tests {
 
         assert_ne!(pen.pointerInfo.pointerFlags & POINTER_FLAG_UP, 0);
         assert_eq!(pen.pointerInfo.pointerFlags & POINTER_FLAG_INCONTACT, 0);
-        assert_eq!(
-            pen.pointerInfo.ButtonChangeType,
-            POINTER_CHANGE_FIRSTBUTTON_UP
+    }
+
+    #[test]
+    fn out_of_range_packet_ends_pointer_lifetime() {
+        let packet = build_packet(
+            PenInput {
+                x: 10,
+                y: 20,
+                pressure: 0,
+                tilt_x: None,
+                tilt_y: None,
+                rotation: None,
+                phase: PenPhase::OutOfRange,
+                position_changed: false,
+            },
+            false,
         );
+        let pen = unsafe { packet.Anonymous.penInfo };
+
+        assert_ne!(pen.pointerInfo.pointerFlags & POINTER_FLAG_UPDATE, 0);
+        assert_eq!(pen.pointerInfo.pointerFlags & POINTER_FLAG_INRANGE, 0);
     }
 }

@@ -8,9 +8,10 @@ use crate::{Args, HostDriverArg, OrientationArg, config};
 use remouseable::{
     HostDriver, NativeDriver,
     app::{process_events_with_driver, process_pen_events_with_driver},
+    available_monitors,
     ssh::{SshOptions, open_event_stream_with_cancel},
 };
-use slint::{ComponentHandle, SharedString};
+use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use std::{
     error::Error,
     io,
@@ -42,6 +43,23 @@ pub fn run_ui(args: &Args) -> Result<(), Box<dyn Error>> {
     ui.set_host_driver(host_driver_name(args.host_driver).into());
     ui.set_pressure_threshold(args.pressure_threshold.to_string().into());
     ui.set_disable_drag_event(args.disable_drag_event);
+    let monitors = if cfg!(target_os = "windows") {
+        available_monitors()?
+    } else {
+        Vec::new()
+    };
+    let monitor_labels = monitors
+        .iter()
+        .map(|monitor| SharedString::from(monitor.label.as_str()))
+        .collect::<Vec<_>>();
+    let selected_monitor = args
+        .monitor_id
+        .and_then(|id| monitors.iter().position(|monitor| monitor.id == id))
+        .or_else(|| monitors.iter().position(|monitor| monitor.is_primary))
+        .unwrap_or(0);
+    ui.set_monitor_options(ModelRc::new(VecModel::from(monitor_labels)));
+    ui.set_monitor_index(i32::try_from(selected_monitor).unwrap_or(0));
+    ui.set_show_monitor_selector(cfg!(target_os = "windows"));
 
     // Keep CLI defaults as the base configuration. Start callback values
     // override only fields the UI exposes.
@@ -59,6 +77,7 @@ pub fn run_ui(args: &Args) -> Result<(), Box<dyn Error>> {
               event_file,
               orientation,
               host_driver,
+              monitor_index,
               pressure_threshold,
               disable_drag_event| {
             // A fresh token belongs to one launched worker. Existing token means
@@ -80,6 +99,10 @@ pub fn run_ui(args: &Args) -> Result<(), Box<dyn Error>> {
                 event_file: event_file.to_string(),
                 orientation: orientation.to_string(),
                 host_driver: host_driver.to_string(),
+                monitor_id: usize::try_from(monitor_index)
+                    .ok()
+                    .and_then(|index| monitors.get(index))
+                    .map(|monitor| monitor.id),
                 pressure_threshold: pressure_threshold.to_string(),
                 disable_drag_event,
             };
@@ -128,6 +151,7 @@ struct UiLaunchArgs {
     event_file: String,
     orientation: String,
     host_driver: String,
+    monitor_id: Option<u32>,
     pressure_threshold: String,
     disable_drag_event: bool,
 }
@@ -144,6 +168,7 @@ fn run_live_from_ui(
     args.event_file = Some(launch.event_file);
     args.orientation = parse_orientation(&launch.orientation)?;
     args.host_driver = parse_host_driver(&launch.host_driver)?;
+    args.monitor_id = launch.monitor_id;
     args.pressure_threshold = launch.pressure_threshold.trim().parse().map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -153,7 +178,7 @@ fn run_live_from_ui(
     args.disable_drag_event = launch.disable_drag_event;
 
     let event_file = super::event_file_or_prompt(args.event_file.as_deref())?;
-    let driver = NativeDriver::new(args.host_driver.into())?;
+    let driver = NativeDriver::new_for_monitor(args.host_driver.into(), args.monitor_id)?;
     let (detected_width, detected_height) = driver.screen_size()?;
 
     // The SSH reader watches this token and reports EOF when Stop is requested.

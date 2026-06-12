@@ -115,6 +115,10 @@ pub(crate) struct Args {
     #[arg(long)]
     screen_width: Option<i32>,
 
+    /// Attached monitor ID used for Windows pen coordinate mapping.
+    #[arg(long)]
+    monitor_id: Option<u32>,
+
     /// Tablet coordinate height.
     #[arg(long, default_value_t = DEFAULT_TABLET_HEIGHT)]
     tablet_height: i32,
@@ -197,7 +201,7 @@ fn run(args: &Args) -> Result<(), Box<dyn Error>> {
     // Live mode injects native mouse events. Local mode writes JSON actions so
     // event processing can be tested without moving the cursor.
     if is_live {
-        let driver = NativeDriver::new(args.host_driver.into())?;
+        let driver = NativeDriver::new_for_monitor(args.host_driver.into(), args.monitor_id)?;
         let (detected_width, detected_height) = driver.screen_size()?;
         let config = config(args, detected_width, detected_height);
         if driver.supports_pen() {
@@ -353,6 +357,7 @@ mod tests {
             "--pressure-threshold=1500",
             "--screen-height=1440",
             "--screen-width=2560",
+            "--monitor-id=42",
             "--ssh-ip=remarkable.local:2222",
             "--ssh-password=secret",
             "--ssh-socket=/tmp/agent.sock",
@@ -370,6 +375,7 @@ mod tests {
         assert_eq!(args.pressure_threshold, 1500);
         assert_eq!(args.screen_height, Some(1440));
         assert_eq!(args.screen_width, Some(2560));
+        assert_eq!(args.monitor_id, Some(42));
         assert_eq!(args.ssh_ip, "remarkable.local:2222");
         assert_eq!(args.ssh_password.as_deref(), Some("secret"));
         assert_eq!(args.ssh_socket, "/tmp/agent.sock");

@@ -6,6 +6,7 @@ component ReadableLineEdit inherits Rectangle {
     in-out property <string> text;
     in property <string> placeholder-text;
     in property <InputType> input-type: InputType.text;
+    callback accepted();
 
     height: 36px;
     min-width: 160px;
@@ -40,6 +41,7 @@ component ReadableLineEdit inherits Rectangle {
         selection-foreground-color: #09090b;
         selection-background-color: #d4d4d8;
         vertical-alignment: center;
+        accepted => { root.accepted(); }
     }
 }
 
@@ -220,11 +222,79 @@ component DriverCombo inherits Rectangle {
     }
 }
 
+component MonitorCombo inherits Rectangle {
+    in property <[string]> options;
+    in-out property <int> selected-index;
+
+    height: 36px;
+    min-width: 320px;
+    background: #18181b;
+    border-color: #52525b;
+    border-width: 1px;
+    border-radius: 4px;
+
+    TouchArea { width: parent.width; height: parent.height; clicked => { popup.show(); } }
+    Text {
+        x: 10px;
+        width: parent.width - 32px;
+        height: parent.height;
+        text: root.options.length > 0 ? root.options[root.selected-index] : "No monitors found";
+        color: #f4f4f5;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Text {
+        x: parent.width - 22px;
+        width: 16px;
+        height: parent.height;
+        text: "v";
+        color: #a1a1aa;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    popup := PopupWindow {
+        width: root.width;
+        height: root.options.length * 36px;
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: #18181b;
+            border-color: #52525b;
+            border-width: 1px;
+            border-radius: 4px;
+            clip: true;
+            VerticalBox {
+                padding: 0px;
+                spacing: 0px;
+                for option[index] in root.options: Rectangle {
+                    height: 36px;
+                    background: root.selected-index == index ? #3f3f46 : #18181b;
+                    TouchArea {
+                        width: parent.width;
+                        height: parent.height;
+                        clicked => { root.selected-index = index; popup.close(); }
+                    }
+                    Text {
+                        x: 10px;
+                        width: parent.width - 20px;
+                        height: parent.height;
+                        text: option;
+                        color: #f4f4f5;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+    }
+}
+
 export component RemouseableWindow inherits Window {
     title: "reMouseable";
     icon: @image-url("../assets/remouseable.png");
     min-width: 520px;
-    min-height: 560px;
+    min-height: 620px;
 
     in-out property <string> ssh-ip: "10.11.99.1:22";
     in-out property <string> ssh-user: "root";
@@ -232,6 +302,9 @@ export component RemouseableWindow inherits Window {
     in-out property <string> event-file: "/dev/input/event1";
     in-out property <string> orientation: "right";
     in-out property <string> host-driver: "auto";
+    in property <[string]> monitor-options;
+    in-out property <int> monitor-index: 0;
+    in property <bool> show-monitor-selector: false;
     in-out property <string> pressure-threshold: "1000";
     in-out property <bool> disable-drag-event: false;
     in-out property <bool> running: false;
@@ -239,7 +312,7 @@ export component RemouseableWindow inherits Window {
 
     // Rust handles long-running work. Slint only emits user intent with current
     // control values.
-    callback start-requested(string, string, string, string, string, string, string, bool);
+    callback start-requested(string, string, string, string, string, string, int, string, bool);
     callback stop-requested();
 
     background: #09090b;
@@ -279,6 +352,21 @@ export component RemouseableWindow inherits Window {
             text <=> root.ssh-password;
             placeholder-text: "Tablet password";
             input-type: InputType.password;
+            accepted => {
+                if (!root.running) {
+                    root.start-requested(
+                        root.ssh-ip,
+                        root.ssh-user,
+                        root.ssh-password,
+                        root.event-file,
+                        root.orientation,
+                        root.host-driver,
+                        root.monitor-index,
+                        root.pressure-threshold,
+                        root.disable-drag-event,
+                    );
+                }
+            }
         }
 
         Text { text: "Event file"; color: #d4d4d8; }
@@ -299,6 +387,12 @@ export component RemouseableWindow inherits Window {
                 Text { text: "Host driver"; color: #d4d4d8; }
                 DriverCombo { value <=> root.host-driver; }
             }
+        }
+
+        VerticalBox {
+            visible: root.show-monitor-selector && (root.host-driver == "auto" || root.host-driver == "windows-pen");
+            Text { text: "Input mapping monitor"; color: #d4d4d8; }
+            MonitorCombo { options: root.monitor-options; selected-index <=> root.monitor-index; }
         }
 
         Text { text: "Pressure threshold"; color: #d4d4d8; }
@@ -337,6 +431,7 @@ export component RemouseableWindow inherits Window {
                             root.event-file,
                             root.orientation,
                             root.host-driver,
+                            root.monitor-index,
                             root.pressure-threshold,
                             root.disable-drag-event,
                         );
